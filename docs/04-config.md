@@ -6,7 +6,7 @@
 
 ```json
 {
-  "$schema": "./node_modules/menou/schema.json",
+  "$schema": "https://unpkg.com/menou@1/schema.json",
   "maxBlocks": 3,
   "checks": [
     {
@@ -38,7 +38,7 @@
 
 | フィールド | 型 | 必須 | 既定値 | 説明 |
 | --- | --- | --- | --- | --- |
-| `$schema` | string | いいえ | なし | エディタ補完用の JSON Schema のパス |
+| `$schema` | string | いいえ | なし | エディタ補完用の JSON Schema の URL |
 | `maxBlocks` | number | いいえ | 3 | 1 セッションで連続ブロックできる上限。超えたら許可して人に通知する |
 | `checks` | array | はい | なし | チェック定義の配列 |
 
