@@ -9,8 +9,6 @@ menou はエージェントが完了しようとするたびにフックから�
 
 npm パッケージとして入れた場合は `node_modules` から呼べますが、プラグインとして入れた場合は `node_modules` がありません。そのため、フックから `menou` をどう呼ぶかと、`.menou.json` の `$schema` に何を書くかが決まっていませんでした。
 
-## 検討した選択肢
-
 TypeScript（Node.js）と Rust を比べました。
 
 | | TypeScript / Node.js | Rust |
@@ -44,18 +42,18 @@ TypeScript を Bun や Deno で単一バイナリにする案も試しました�
 - プラグインのフックは `"${CLAUDE_PLUGIN_ROOT}/bin/menou" hook <event>` で呼ぶ。`bin/menou` はシェルスクリプトのラッパーで、`node` がなければその旨を出して止まる
 - `.menou.json` の `$schema` には、npm に公開した `schema.json` をメジャー version で固定した URL（`https://unpkg.com/menou@1/schema.json`）を書く
 
-## 理由
-
 起動時間の差は、git の処理に埋もれます。Node.js と Rust の差は約 26 ms で、Stop のたびにどちらでもかかるフィンガープリントの計算（約 37 ms）より小さくなりました。
 
 JSON Schema の道具は、どちらにもあります。TypeScript では ajv、Rust では jsonschema クレートと schemars が使えるので、ここでは差がつきませんでした。
 
 決め手は配布と実行環境です。当面は個人単位で試してもらうので、利用者のリポジトリの `package.json` に menou を追加してもらうことはできません。そのため、プラグイン 1 つで始められることが要ります。TypeScript なら、プラグインに JS 1 ファイルを入れれば済みます。Rust では、プラットフォームごとのバイナリで履歴が膨らむか、フックの中でネットワークにアクセスすることになります。
 
-Node.js が必要になる点は受け入れます。menou が使うのはプロジェクトの Node.js ではなく、使う人のマシンの PATH にある `node` です。そのため、Rails のように Node.js を使わないプロジェクトでも、マシンに `node` があれば動きます。
+`$schema` を URL にするのは、プラグインで入れた人には `node_modules/menou/schema.json` が存在しないためです。
+
+## 影響
+
+使う人のマシンに Node.js が必要になります。menou が使うのはプロジェクトの Node.js ではなく、使う人のマシンの PATH にある `node` です。そのため、Rails のように Node.js を使わないプロジェクトでも、マシンに `node` があれば動きます。
 
 フックから `node` を直接呼ばずに `bin/menou` を挟むのは、`node` が見つからないときに気づけるようにするためです。`node` がないと menou 自体が起動しないので、`menou doctor` や SessionStart の案内では知らせられません。
-
-`$schema` を URL にするのは、プラグインで入れた人には `node_modules/menou/schema.json` が存在しないためです。
 
 使う人のマシンに Node.js がない場面が増えたら、言語を見直します。
