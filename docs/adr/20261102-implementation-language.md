@@ -38,7 +38,7 @@ TypeScript を Bun や Deno で単一バイナリにする案も試しました�
 
 - TypeScript（Node.js）で実装する
 - 依存を JS 1 ファイルにまとめ、npm パッケージとプラグインの両方に入れる
-- バンドル時に文法を古い Node.js 向けに落とし、使う API を絞る。下限の version は #6 で決める
+- バンドル時に文法を古い Node.js 向けに落とし、使う API を絞る。下限は Node.js 16.0.0 にする
 - プラグインのフックは `"${CLAUDE_PLUGIN_ROOT}/bin/menou" hook <event>` で呼ぶ。`bin/menou` はシェルスクリプトのラッパーで、`node` がなければその旨を出して止まる
 - `.menou.json` の `$schema` には、npm に公開した `schema.json` をメジャー version で固定した URL（`https://unpkg.com/menou@1/schema.json`）を書く
 
@@ -55,5 +55,9 @@ JSON Schema の道具は、どちらにもあります。TypeScript では ajv�
 使う人のマシンに Node.js が必要になります。menou が使うのはプロジェクトの Node.js ではなく、使う人のマシンの PATH にある `node` です。そのため、Rails のように Node.js を使わないプロジェクトでも、マシンに `node` があれば動きます。
 
 フックから `node` を直接呼ばずに `bin/menou` を挟むのは、`node` が見つからないときに気づけるようにするためです。`node` がないと menou 自体が起動しないので、`menou doctor` や SessionStart の案内では知らせられません。
+
+Node.js 16 にない API は使えません。型（tsconfig の `lib`）と eslint-plugin-n で使えないようにし、`pnpm test:floor` で下限の Node.js で起動できることを確かめます。
+
+プラグインには、ビルドした `dist/menou.cjs` を入れる必要があります。そのコミットのしかたは M6 で決めます。
 
 使う人のマシンに Node.js がない場面が増えたら、言語を見直します。
