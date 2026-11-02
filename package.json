@@ -1,0 +1,15 @@
+{
+  "name": "menou",
+  "version": "0.0.0",
+  "description": "AI コーディングエージェントが、決められた検証を今のコードに対して通すまで完了できないようにするゲート",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sena-m09/menou.git"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "packageManager": "pnpm@11.10.0"
+}
