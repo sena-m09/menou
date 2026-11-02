@@ -11,5 +11,11 @@
   "engines": {
     "node": ">=16.0.0"
   },
-  "packageManager": "pnpm@11.10.0"
+  "packageManager": "pnpm@11.10.0",
+  "devDependencies": {
+    "vitest": "^5.0.5"
+  },
+  "scripts": {
+    "test": "vitest run"
+  }
 }
