@@ -8,6 +8,10 @@ export default defineConfig(
   js.configs.recommended,
   tseslint.configs.recommended,
   {
+    files: ["scripts/**/*.mjs"],
+    languageOptions: n.configs["flat/recommended-module"].languageOptions,
+  },
+  {
     files: ["src/**/*.ts"],
     plugins: { n },
     // globals を宣言しないと、structuredClone のような Node のグローバルを rule が検出できない。
