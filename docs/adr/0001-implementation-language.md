@@ -11,13 +11,14 @@ npm パッケージとして入れた場合は `node_modules` から呼べます
 
 ## 検討した選択肢
 
-| | TypeScript / Node.js | Go | Rust |
-| --- | --- | --- | --- |
-| フック 1 回の起動時間（中央値） | 約 37 ms | 未計測 | 約 11〜20 ms |
-| 利用者の環境に必要なもの | Node.js | なし | なし |
-| JSON Schema の検証 | ajv（ビルド時にバリデータを生成すれば起動時間は増えない） | santhosh-tekuri/jsonschema | jsonschema クレート |
-| スキーマからの型生成・ドキュメント生成 | 道具がそろっている | 少ない | 少ない |
-| プラグインへの入れ方 | JS 1 ファイルを入れる | プラットフォームごとのバイナリを入れるか、初回にダウンロードする | 同左 |
+TypeScript（Node.js）と Rust を比べました。
+
+| | TypeScript / Node.js | Rust |
+| --- | --- | --- |
+| フック 1 回の起動時間（中央値） | 約 37 ms | 約 11〜20 ms |
+| JSON Schema の道具 | ajv | jsonschema クレートで検証、schemars でスキーマを生成 |
+| 利用者の環境に必要なもの | Node.js | なし |
+| プラグインへの入れ方 | JS 1 ファイルを入れる | プラットフォームごとのバイナリを入れるか、初回にダウンロードする |
 
 起動時間は、Apple M3 の Mac で 3000 ファイルの git リポジトリを作り、最小のフックを 60 回ずつ実行して測りました。フックは stdin の JSON と `.menou.json` を読み、`git rev-parse` を 1 回呼んで `{}` を出力するだけのものです。
 
@@ -31,7 +32,7 @@ npm パッケージとして入れた場合は `node_modules` から呼べます
 | Rust（serde_json + jsonschema） | 20.4 |
 | 一時インデックスへの `git add -A` と `git write-tree` | 37.2 |
 
-Go は手元に処理系がなかったので測っていません。
+Go も候補にしましたが、手元に処理系がなく計測していません。配布の課題は Rust と同じです。
 
 TypeScript を Bun や Deno で単一バイナリにする案も試しました。1 つが 60〜80 MB になり、プラットフォームごとにプラグインへ入れるには大きすぎるので外しました。
 
@@ -39,19 +40,22 @@ TypeScript を Bun や Deno で単一バイナリにする案も試しました�
 
 - TypeScript（Node.js）で実装する
 - 依存を JS 1 ファイルにまとめ、npm パッケージとプラグインの両方に入れる
-- プラグインのフックは、シェルスクリプト `bin/menou` を `"${CLAUDE_PLUGIN_ROOT}/bin/menou" hook <event>` で呼ぶ。`bin/menou` は `node` があるかを確かめてから、まとめた JS を `node` で実行する
+- バンドル時に文法を古い Node.js 向けに落とし、使う API を絞る。下限の version は #6 で決める
+- プラグインのフックは `"${CLAUDE_PLUGIN_ROOT}/bin/menou" hook <event>` で呼ぶ。`bin/menou` はシェルスクリプトのラッパーで、`node` がなければその旨を出して止まる
 - `.menou.json` の `$schema` には、npm に公開した `schema.json` をメジャー version で固定した URL（`https://unpkg.com/menou@1/schema.json`）を書く
 
 ## 理由
 
-Node.js と Rust の起動時間の差は約 26 ms でした。この差は、Stop のたびにどの言語でもかかるフィンガープリントの計算（約 37 ms）より小さく、判断を左右しないと考えました。
+起動時間の差は、git の処理に埋もれます。Node.js と Rust の差は約 26 ms で、Stop のたびにどちらでもかかるフィンガープリントの計算（約 37 ms）より小さくなりました。
 
-`docs/README.md` では、JSON Schema を正としてドキュメントを生成する方針にしています。スキーマからの検証・型生成・ドキュメント生成の道具が最もそろっているのが TypeScript でした。
+JSON Schema の道具は、どちらにもあります。TypeScript では ajv、Rust では jsonschema クレートと schemars が使えるので、ここでは差がつきませんでした。
 
-プラグインに入れるものが JS 1 ファイルで済みます。Go や Rust では、プラットフォームごとのバイナリで履歴が膨らむか、フックの中でネットワークにアクセスすることになります。
+決め手は配布と実行環境です。当面は個人単位で試してもらうので、利用者のリポジトリの `package.json` に menou を追加してもらうことはできません。そのため、プラグイン 1 つで始められることが要ります。TypeScript なら、プラグインに JS 1 ファイルを入れれば済みます。Rust では、プラットフォームごとのバイナリで履歴が膨らむか、フックの中でネットワークにアクセスすることになります。
 
-フックから `node` を直接呼ばず `bin/menou` を挟むのは、`node` が見つからないときに知らせるためです。`node` がないと menou 自体が起動しないので、`menou doctor` や SessionStart の案内では気づけません。
+Node.js が必要になる点は受け入れます。使うのはフロントエンドのプロジェクトが中心なので、Node.js がある前提に立てます。
+
+フックから `node` を直接呼ばずに `bin/menou` を挟むのは、`node` が見つからないときに気づけるようにするためです。`node` がないと menou 自体が起動しないので、`menou doctor` や SessionStart の案内では知らせられません。
 
 `$schema` を URL にするのは、プラグインで入れた人には `node_modules/menou/schema.json` が存在しないためです。
 
-Node.js が必要になる点は、当面の利用者が Node.js の入った JS / TS のプロジェクトだと見込んで受け入れています。Node.js のない環境の利用者を主な対象にする場合は、Go の単一バイナリへの切り替えを検討し直します。
+Node.js のない環境での利用が増えたら、言語を見直します。
