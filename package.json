@@ -1,0 +1,37 @@
+{
+  "name": "menou",
+  "version": "0.0.0",
+  "description": "AI コーディングエージェントが、決められた検証を今のコードに対して通すまで完了できないようにするゲート",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sena-m09/menou.git"
+  },
+  "bin": {
+    "menou": "dist/menou.cjs"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "pnpm typecheck && oxlint --deny-warnings && oxfmt --check",
+    "format": "oxfmt",
+    "build": "node scripts/build.mjs",
+    "test:floor": "pnpm build && docker run --rm -v \"$PWD\":/w -w /w node:16.0.0 bin/menou --version"
+  },
+  "devDependencies": {
+    "@types/node": "^16.18.126",
+    "esbuild": "^0.28.2",
+    "oxfmt": "^0.75.0",
+    "oxlint": "^1.90.0",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.5"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "packageManager": "pnpm@11.10.0"
+}

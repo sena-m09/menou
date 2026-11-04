@@ -1,0 +1,6 @@
+#!/bin/sh
+if ! command -v node >/dev/null 2>&1; then
+  echo "menou: node が見つかりません。Node.js 16 以上を PATH に入れてください。" >&2
+  exit 127
+fi
+exec node "${0%/*}/../dist/menou.cjs" "$@"
