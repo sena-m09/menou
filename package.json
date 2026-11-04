@@ -17,7 +17,7 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "lint": "pnpm typecheck && oxlint --deny-warnings && oxfmt --check",
+    "lint": "node scripts/check-adr.ts && pnpm typecheck && oxlint --deny-warnings && oxfmt --check",
     "format": "oxfmt",
     "build": "node scripts/build.mjs",
     "test:floor": "pnpm build && docker run --rm -v \"$PWD\":/w -w /w node:16.0.0 bin/menou --version"
