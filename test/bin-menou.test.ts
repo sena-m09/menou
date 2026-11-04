@@ -2,9 +2,10 @@ import { spawnSync } from "node:child_process";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-const repoRoot = resolve(import.meta.dirname, "..");
+const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const wrapper = join(repoRoot, "bin/menou");
 
 let pathDir: string;
