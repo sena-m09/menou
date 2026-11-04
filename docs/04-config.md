@@ -6,7 +6,7 @@
 
 ```json
 {
-  "$schema": "https://unpkg.com/menou@1/schema.json",
+  "$schema": "https://unpkg.com/@sena-m09/menou@1/schema.json",
   "maxBlocks": 3,
   "checks": [
     {
