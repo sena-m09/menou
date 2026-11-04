@@ -1,5 +1,5 @@
 {
-  "name": "menou",
+  "name": "@sena-m09/menou",
   "version": "0.0.0",
   "description": "AI コーディングエージェントが、決められた検証を今のコードに対して通すまで完了できないようにするゲート",
   "license": "MIT",
@@ -14,6 +14,9 @@
     "dist"
   ],
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
