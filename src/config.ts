@@ -22,9 +22,13 @@ export type ConfigResult =
 export const configFileName = ".menou.json";
 
 export function loadConfig(root: string): ConfigResult {
-  let text: string;
+  const text = readConfigFile(root);
+  return typeof text === "string" ? parseConfig(text.replace(/^\uFEFF/, "")) : text;
+}
+
+function readConfigFile(root: string): string | Exclude<ConfigResult, ParsedConfig> {
   try {
-    text = readFileSync(join(root, configFileName), "utf8");
+    return readFileSync(join(root, configFileName), "utf8");
   } catch (error) {
     if (!(error instanceof Error)) throw error;
     const code = "code" in error && typeof error.code === "string" ? error.code : "";
@@ -37,7 +41,6 @@ export function loadConfig(root: string): ConfigResult {
       problems: [{ path: "", message: unreadable(code, error.message) }],
     };
   }
-  return parseConfig(text.replace(/^\uFEFF/, ""));
 }
 
 function unreadable(code: string, detail: string): string {

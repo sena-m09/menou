@@ -61,14 +61,7 @@ interface Workspace {
 }
 
 function openWorkspace(context: Context): Workspace | undefined {
-  let locations: Locations;
-  try {
-    locations = resolveLocations(context.cwd ?? process.cwd());
-  } catch (error) {
-    if (!(error instanceof GitError)) throw error;
-    throw new MenouError("git リポジトリの中で実行してください。");
-  }
-
+  const locations = locate(context);
   const result = loadConfig(locations.root);
   if (result.status === "missing") return undefined;
   if (result.status === "invalid") {
@@ -78,6 +71,15 @@ function openWorkspace(context: Context): Workspace | undefined {
     );
   }
   return { locations, config: result.config };
+}
+
+function locate(context: Context): Locations {
+  try {
+    return resolveLocations(context.cwd ?? process.cwd());
+  } catch (error) {
+    if (!(error instanceof GitError)) throw error;
+    throw new MenouError("git リポジトリの中で実行してください。");
+  }
 }
 
 function idList(config: Config): string {

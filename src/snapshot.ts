@@ -35,15 +35,20 @@ export function takeSnapshot(dir: string, pathsList: readonly (readonly string[]
 }
 
 function copyRealIndex(from: string, to: string) {
-  let original: Stats;
-  try {
-    // 写したあとに取ると、その間に差し替わったインデックスより新しい時刻を付けてしまう。
-    original = statSync(from);
-    copyFileSync(from, to);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    return;
-  }
+  const original = statAndCopy(from, to);
+  if (original === undefined) return;
   // git はインデックスの mtime と同じ秒に書き換えたファイルだけ中身を見直すので、写した時刻のままだと見落とす。
   utimesSync(to, original.atime, original.mtime);
+}
+
+function statAndCopy(from: string, to: string): Stats | undefined {
+  try {
+    // 写したあとに取ると、その間に差し替わったインデックスより新しい時刻を付けてしまう。
+    const original = statSync(from);
+    copyFileSync(from, to);
+    return original;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
+    throw error;
+  }
 }

@@ -72,17 +72,21 @@ export function readRecord(
   id: string,
   fingerprint: string,
 ): CheckRecord | undefined {
-  let text: string;
-  try {
-    text = readFileSync(recordPath(locations, id, fingerprint), "utf8");
-  } catch {
-    return undefined;
-  }
+  const text = readText(recordPath(locations, id, fingerprint));
+  if (text === undefined) return undefined;
   const result = v.safeParse(RecordFileSchema, text);
   if (!result.success || result.output.id !== id || result.output.fingerprint !== fingerprint) {
     return undefined;
   }
   return result.output;
+}
+
+function readText(path: string): string | undefined {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return undefined;
+  }
 }
 
 export function prepareOutDir(locations: Locations, id: string): string {
