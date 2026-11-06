@@ -113,14 +113,9 @@ async function runOne(id: string | undefined, context: Context): Promise<number>
     computeFingerprints(locations.root, [check]).fingerprints.get(check.id) ?? "";
   const before = fingerprintNow();
   const outDir = prepareOutDir(locations, check.id);
-  let outcome: Outcome = await runCheck(check, {
-    cwd: locations.root,
-    outDir,
-    stdio: context.checkOutput,
-  });
-  if (fingerprintNow() !== before) {
-    outcome = { result: "error", cause: { kind: "modified" } };
-  }
+  const ran = await runCheck(check, { cwd: locations.root, outDir, stdio: context.checkOutput });
+  const outcome: Outcome =
+    fingerprintNow() === before ? ran : { result: "error", cause: { kind: "modified" } };
 
   writeRecord(locations, {
     id: check.id,
