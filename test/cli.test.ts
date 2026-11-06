@@ -298,7 +298,7 @@ describe("menou status", () => {
     expect(stderr).not.toContain('"src/**"');
   });
 
-  it("除外の paths は、一致するファイルがなくても警告しない", async () => {
+  it("除外の paths は、除外するファイルがなくても警告しない", async () => {
     configure([{ id: "lint", run: "exit 0", paths: ["src/**", ":(exclude)lib/**"] }]);
 
     expect((await runCli(["status"], repo.root)).stderr).toBe("");

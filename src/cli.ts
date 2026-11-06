@@ -170,9 +170,7 @@ function status(context: Context): number {
     return 0;
   }
 
-  const singles = config.checks.flatMap((check) =>
-    check.paths.filter((path) => !isExclude(path)).map((path) => ({ check, path })),
-  );
+  const singles = config.checks.flatMap((check) => check.paths.map((path) => ({ check, path })));
   const { files } = takeSnapshot(locations.root, [
     ...config.checks.map((check) => check.paths),
     ...singles.map(({ path }) => [path]),
@@ -219,8 +217,4 @@ function errorLabel(cause: ErrorCause): string {
     case "modified":
       return "実行中にファイルが書き換わった";
   }
-}
-
-function isExclude(path: string): boolean {
-  return /^:(!|\^|\([^)]*\bexclude\b)/.test(path);
 }
