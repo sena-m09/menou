@@ -121,6 +121,22 @@ describe("JSON として読めない設定", () => {
     expect(result).toMatchObject({ status: "invalid", kind: "json" });
     expect(result.status === "invalid" && result.problems[0]?.message).toContain("JSON");
   });
+
+  it("どこが読めないかは、JSON.parse のエラー文をそのまま括弧の中に入れて伝える", () => {
+    const text = '{ "checks": [ }';
+    const detail = (() => {
+      try {
+        JSON.parse(text);
+      } catch (error) {
+        if (error instanceof Error) return error.message;
+      }
+      throw new Error("JSON として読めてしまいました");
+    })();
+
+    const result = parseConfig(text);
+
+    expect(result.status === "invalid" && result.problems[0]?.message).toContain(`（${detail}）`);
+  });
 });
 
 describe("スキーマに合わない設定", () => {
