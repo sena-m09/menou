@@ -133,7 +133,7 @@ describe("スキーマに合わない設定", () => {
     ]);
   });
 
-  it.each([null, "lint", []])(
+  it.each([[null], ["lint"], [[]]])(
     "チェック定義がオブジェクトでない %j なら不正になり、その要素をオブジェクトで書くよう伝える",
     (check) => {
       expect(problemAt({ checks: [lint, check] }, "checks[1]")).toContain("オブジェクト");
