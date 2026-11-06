@@ -26,7 +26,7 @@ AI エージェントが完了する前に通る関門（Agent gate）を縮め�
 | CLI | `menou` |
 | npm パッケージ | `@sena-m09/menou` |
 | 設定ファイル | `.menou.json` |
-| 記録の保存場所 | `.git/menou/`（git worktree では、セッションごとのデータを `.git/worktrees/<名前>/menou/` に置く） |
+| 記録の保存場所 | `.git/menou/`（git worktree では、セッションごとのデータと `MENOU_OUT` のディレクトリを `.git/worktrees/<名前>/menou/` に置く） |
 | 環境変数の接頭辞 | `MENOU_` |
 
 ## ドキュメントの扱い

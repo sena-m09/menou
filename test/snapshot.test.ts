@@ -1,7 +1,8 @@
-import { readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { takeSnapshot } from "../src/snapshot";
+import { temporaryName } from "../src/temp-file";
 import { createRepo, type Repo } from "./repo";
 
 let repo: Repo;
@@ -159,6 +160,50 @@ describe("後片付け", () => {
     expect(() => takeSnapshot(repo.root, [[":(unknown-magic)src"]])).toThrow();
 
     expect(filesInGitDir()).toEqual(before);
+  });
+
+  describe("強制終了で残った作業用のファイル", () => {
+    const hour = 60 * 60 * 1000;
+    let workDir: string;
+
+    beforeEach(() => {
+      const gitDir = repo.git("rev-parse", "--path-format=absolute", "--git-dir").trim();
+      workDir = join(gitDir, "menou");
+      mkdirSync(workDir, { recursive: true });
+    });
+
+    function leave(name: string, modified = new Date()) {
+      writeFileSync(join(workDir, name), "");
+      utimesSync(join(workDir, name), modified, modified);
+    }
+
+    it("作ってから 1 時間を過ぎたものは、次に取るときに消す", () => {
+      const stale = temporaryName("index", Date.now() - hour - 60_000);
+      leave(stale);
+      leave(`${stale}.lock`);
+
+      takeSnapshot(repo.root, [["src/**"]]);
+
+      expect(existsSync(join(workDir, stale))).toBe(false);
+      expect(existsSync(join(workDir, `${stale}.lock`))).toBe(false);
+    });
+
+    it("作ってから 1 時間以内のものは、ほかの menou が使っている途中かもしれないので、更新時刻が古くても消さない", () => {
+      const recent = temporaryName("index", Date.now() - hour + 60_000);
+      leave(recent, new Date(Date.now() - 48 * hour));
+
+      takeSnapshot(repo.root, [["src/**"]]);
+
+      expect(existsSync(join(workDir, recent))).toBe(true);
+    });
+
+    it("一時インデックスのほかのファイルは、古くても消さない", () => {
+      leave("results.json", new Date(Date.now() - 48 * hour));
+
+      takeSnapshot(repo.root, [["src/**"]]);
+
+      expect(existsSync(join(workDir, "results.json"))).toBe(true);
+    });
   });
 });
 

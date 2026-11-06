@@ -1,7 +1,7 @@
-import { randomBytes } from "node:crypto";
 import { type Stats, copyFileSync, mkdirSync, rmSync, statSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { git } from "./git";
+import { removeStaleTemporaries, temporaryName } from "./temp-file";
 
 export interface Snapshot {
   tree: string;
@@ -16,7 +16,8 @@ export function takeSnapshot(dir: string, pathsList: readonly (readonly string[]
 
   const workDir = join(gitDir, "menou");
   mkdirSync(workDir, { recursive: true });
-  const indexFile = join(workDir, `index-${process.pid}-${randomBytes(6).toString("hex")}`);
+  removeStaleTemporaries(workDir, "index");
+  const indexFile = join(workDir, temporaryName("index"));
 
   try {
     copyRealIndex(realIndex, indexFile);
