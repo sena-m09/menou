@@ -25,7 +25,7 @@
     "format": "oxfmt",
     "build": "node scripts/build.mjs",
     "generate": "node scripts/generate-schema.ts",
-    "test:floor": "pnpm build && docker run --rm -v \"$PWD\":/w -w /w node:22.0.0 bin/menou --version"
+    "test:floor": "pnpm build && docker run --rm -v \"$PWD\":/w -w /w node:22.0.0 sh -c 'bin/menou --version && repo=$(mktemp -d) && git init -q $repo && cp test/fixtures/floor.menou.json $repo/.menou.json && cd $repo && /w/bin/menou status'"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

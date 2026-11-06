@@ -1,0 +1,16 @@
+{
+  "$schema": "https://unpkg.com/@sena-m09/menou@1/schema.json",
+  "maxBlocks": 3,
+  "checks": [
+    { "id": "lint", "mode": "inline", "run": "true", "paths": ["**"], "timeout": 60 },
+    {
+      "id": "review",
+      "mode": "evidence",
+      "run": "true",
+      "paths": ["**"],
+      "needs": ["lint"],
+      "severity": "warn",
+      "hint": "🙂 絵文字を含む hint"
+    }
+  ]
+}
