@@ -1,22 +1,20 @@
 import { existsSync, mkdirSync, readdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, vi } from "vitest";
 import { takeSnapshot } from "../src/snapshot";
 import { temporaryName } from "../src/temp-file";
-import { createRepo, type Repo } from "./repo";
+import { type Repo, testWithRepo } from "./repo";
 
-let repo: Repo;
-
-beforeEach(() => {
-  repo = createRepo();
+const it = testWithRepo((repo) => {
   repo.write("src/a.ts", "a");
   repo.write("README.md", "readme");
   repo.commitAll();
 });
 
+const emptyRepoTest = testWithRepo();
+
 afterEach(() => {
   vi.unstubAllEnvs();
-  repo.cleanup();
 });
 
 function waitForNextSecond() {
@@ -25,23 +23,25 @@ function waitForNextSecond() {
   return now + 1;
 }
 
-function treeOfCommittingEverything() {
+function treeOfCommittingEverything(repo: Repo) {
   repo.commitAll();
   return repo.git("rev-parse", "HEAD^{tree}").trim();
 }
 
 describe("作業ツリー全体の tree", () => {
-  it("コミットしていない変更と追跡していないファイルを、すべてコミットしたときと同じ tree になる", () => {
+  it("コミットしていない変更と追跡していないファイルを、すべてコミットしたときと同じ tree になる", ({
+    repo,
+  }) => {
     repo.write("src/a.ts", "changed");
     repo.write("src/new.ts", "new");
     repo.remove("README.md");
 
     const { tree } = takeSnapshot(repo.root, []);
 
-    expect(tree).toBe(treeOfCommittingEverything());
+    expect(tree).toBe(treeOfCommittingEverything(repo));
   });
 
-  it(".gitignore の対象は tree に入らず、対象から外せば入る", () => {
+  it(".gitignore の対象は tree に入らず、対象から外せば入る", ({ repo }) => {
     repo.write(".gitignore", "*.log\n");
     repo.write("debug.log", "log");
     const ignored = takeSnapshot(repo.root, []).tree;
@@ -55,17 +55,19 @@ describe("作業ツリー全体の tree", () => {
     );
   });
 
-  it("git add した内容でなく、作業ツリーの今の内容で取る", () => {
+  it("git add した内容でなく、作業ツリーの今の内容で取る", ({ repo }) => {
     repo.write("src/a.ts", "staged");
     repo.git("add", "src/a.ts");
     repo.write("src/a.ts", "working");
 
     const { tree } = takeSnapshot(repo.root, []);
 
-    expect(tree).toBe(treeOfCommittingEverything());
+    expect(tree).toBe(treeOfCommittingEverything(repo));
   });
 
-  it("git add した直後の同じ秒に同じ大きさで書き換えたファイルも、書き換えたあとの中身で取る", () => {
+  it("git add した直後の同じ秒に同じ大きさで書き換えたファイルも、書き換えたあとの中身で取る", ({
+    repo,
+  }) => {
     const second = waitForNextSecond();
     repo.write("src/a.ts", "1");
     repo.git("add", "src/a.ts");
@@ -79,10 +81,10 @@ describe("作業ツリー全体の tree", () => {
 
     const { tree } = takeSnapshot(repo.root, []);
 
-    expect(tree).toBe(treeOfCommittingEverything());
+    expect(tree).toBe(treeOfCommittingEverything(repo));
   });
 
-  it("中身を変えて元に戻すと、元の tree に戻る", () => {
+  it("中身を変えて元に戻すと、元の tree に戻る", ({ repo }) => {
     const before = takeSnapshot(repo.root, []).tree;
     repo.write("src/a.ts", "changed");
 
@@ -95,7 +97,7 @@ describe("作業ツリー全体の tree", () => {
 });
 
 describe("実際のインデックス", () => {
-  it("git add した状態は、取ったあとも変わらない", () => {
+  it("git add した状態は、取ったあとも変わらない", ({ repo }) => {
     repo.write("src/a.ts", "staged");
     repo.git("add", "src/a.ts");
     repo.write("src/a.ts", "working");
@@ -107,7 +109,7 @@ describe("実際のインデックス", () => {
     expect(repo.indexBytes()).toEqual(before);
   });
 
-  it("マージの衝突を解決していない途中でも取れて、衝突の状態はそのまま残る", () => {
+  it("マージの衝突を解決していない途中でも取れて、衝突の状態はそのまま残る", ({ repo }) => {
     repo.git("switch", "-q", "-c", "other");
     repo.write("src/a.ts", "other");
     repo.commitAll();
@@ -123,64 +125,58 @@ describe("実際のインデックス", () => {
     expect(repo.git("ls-tree", "-r", "--name-only", tree)).toContain("src/a.ts");
   });
 
-  it("まだ 1 度もコミットしていないリポジトリでも取れる", () => {
-    const empty = createRepo();
-    try {
-      empty.write("a.txt", "a");
+  emptyRepoTest("まだ 1 度もコミットしていないリポジトリでも取れる", ({ repo }) => {
+    repo.write("a.txt", "a");
 
-      const { tree } = takeSnapshot(empty.root, [["**"]]);
+    const { tree } = takeSnapshot(repo.root, [["**"]]);
 
-      expect(empty.git("ls-tree", "-r", "--name-only", tree).trim()).toBe("a.txt");
-      expect(empty.indexBytes()).toBeUndefined();
-    } finally {
-      empty.cleanup();
-    }
+    expect(repo.git("ls-tree", "-r", "--name-only", tree).trim()).toBe("a.txt");
+    expect(repo.indexBytes()).toBeUndefined();
   });
 });
 
 describe("後片付け", () => {
-  function filesInGitDir() {
+  function filesInGitDir(repo: Repo) {
     const gitDir = repo.git("rev-parse", "--path-format=absolute", "--git-dir").trim();
     return readdirSync(gitDir, { recursive: true }).map(String).sort();
   }
 
-  it("取り終えたら、git ディレクトリに作業用のファイルを残さない", () => {
+  it("取り終えたら、git ディレクトリに作業用のファイルを残さない", ({ repo }) => {
     takeSnapshot(repo.root, [["src/**"]]);
-    const before = filesInGitDir();
+    const before = filesInGitDir(repo);
 
     takeSnapshot(repo.root, [["src/**"]]);
 
-    expect(filesInGitDir()).toEqual(before);
+    expect(filesInGitDir(repo)).toEqual(before);
   });
 
-  it("git が失敗しても、作業用のファイルを残さない", () => {
+  it("git が失敗しても、作業用のファイルを残さない", ({ repo }) => {
     takeSnapshot(repo.root, [["src/**"]]);
-    const before = filesInGitDir();
+    const before = filesInGitDir(repo);
 
     expect(() => takeSnapshot(repo.root, [[":(unknown-magic)src"]])).toThrow();
 
-    expect(filesInGitDir()).toEqual(before);
+    expect(filesInGitDir(repo)).toEqual(before);
   });
 
   describe("強制終了で残った作業用のファイル", () => {
     const hour = 60 * 60 * 1000;
-    let workDir: string;
-
-    beforeEach(() => {
+    const workDirTest = it.extend("workDir", ({ repo }) => {
       const gitDir = repo.git("rev-parse", "--path-format=absolute", "--git-dir").trim();
-      workDir = join(gitDir, "menou");
+      const workDir = join(gitDir, "menou");
       mkdirSync(workDir, { recursive: true });
+      return workDir;
     });
 
-    function leave(name: string, modified = new Date()) {
+    function leave(workDir: string, name: string, modified = new Date()) {
       writeFileSync(join(workDir, name), "");
       utimesSync(join(workDir, name), modified, modified);
     }
 
-    it("作ってから 1 時間を過ぎたものは、次に取るときに消す", () => {
+    workDirTest("作ってから 1 時間を過ぎたものは、次に取るときに消す", ({ repo, workDir }) => {
       const stale = temporaryName("index", Date.now() - hour - 60_000);
-      leave(stale);
-      leave(`${stale}.lock`);
+      leave(workDir, stale);
+      leave(workDir, `${stale}.lock`);
 
       takeSnapshot(repo.root, [["src/**"]]);
 
@@ -188,17 +184,20 @@ describe("後片付け", () => {
       expect(existsSync(join(workDir, `${stale}.lock`))).toBe(false);
     });
 
-    it("作ってから 1 時間以内のものは、ほかの menou が使っている途中かもしれないので、更新時刻が古くても消さない", () => {
-      const recent = temporaryName("index", Date.now() - hour + 60_000);
-      leave(recent, new Date(Date.now() - 48 * hour));
+    workDirTest(
+      "作ってから 1 時間以内のものは、ほかの menou が使っている途中かもしれないので、更新時刻が古くても消さない",
+      ({ repo, workDir }) => {
+        const recent = temporaryName("index", Date.now() - hour + 60_000);
+        leave(workDir, recent, new Date(Date.now() - 48 * hour));
 
-      takeSnapshot(repo.root, [["src/**"]]);
+        takeSnapshot(repo.root, [["src/**"]]);
 
-      expect(existsSync(join(workDir, recent))).toBe(true);
-    });
+        expect(existsSync(join(workDir, recent))).toBe(true);
+      },
+    );
 
-    it("一時インデックスのほかのファイルは、古くても消さない", () => {
-      leave("results.json", new Date(Date.now() - 48 * hour));
+    workDirTest("一時インデックスのほかのファイルは、古くても消さない", ({ repo, workDir }) => {
+      leave(workDir, "results.json", new Date(Date.now() - 48 * hour));
 
       takeSnapshot(repo.root, [["src/**"]]);
 
@@ -208,14 +207,14 @@ describe("後片付け", () => {
 });
 
 describe("paths の解釈", () => {
-  it("サブディレクトリを渡しても、paths はリポジトリのルートから数える", () => {
+  it("サブディレクトリを渡しても、paths はリポジトリのルートから数える", ({ repo }) => {
     const fromRoot = takeSnapshot(repo.root, [["src/**"]]);
     const fromSub = takeSnapshot(join(repo.root, "src"), [["src/**"]]);
 
     expect(fromSub).toEqual(fromRoot);
   });
 
-  it("呼び出し元の GIT_INDEX_FILE や pathspec の環境変数に左右されない", () => {
+  it("呼び出し元の GIT_INDEX_FILE や pathspec の環境変数に左右されない", ({ repo }) => {
     const expected = takeSnapshot(repo.root, [["src/*"], ["*.md"]]);
     vi.stubEnv("GIT_INDEX_FILE", join(repo.root, "elsewhere-index"));
     vi.stubEnv("GIT_LITERAL_PATHSPECS", "1");
@@ -224,7 +223,7 @@ describe("paths の解釈", () => {
     expect(takeSnapshot(repo.root, [["src/*"], ["*.md"]])).toEqual(expected);
   });
 
-  it("paths の組ごとに、渡した順で結果を返す", () => {
+  it("paths の組ごとに、渡した順で結果を返す", ({ repo }) => {
     const { files } = takeSnapshot(repo.root, [["src/**"], ["*.md"], ["src/**"]]);
 
     expect(files).toHaveLength(3);

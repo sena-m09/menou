@@ -1,4 +1,4 @@
-import fc from "fast-check";
+import fc, { type JsonValue } from "fast-check";
 import { describe, expect, it } from "vitest";
 import { type CheckDefinition, parseConfig } from "../src/config";
 import { computeFingerprints, fingerprint, fingerprintSource } from "../src/fingerprint";
@@ -49,15 +49,13 @@ const excludedArb = fc.record(
   { requiredKeys: ["id", "mode"] },
 );
 
-function definition(included: fc.Arbitrary<Record<string, unknown>>) {
-  return fc
-    .tuple(included, excludedArb)
-    .map(([fields, rest]) => ({ severity: "block", ...rest, ...fields }) as CheckDefinition);
-}
+const definitionArb = fc
+  .tuple(includedArb, excludedArb)
+  .map(([fields, rest]): CheckDefinition => ({ severity: "block", ...rest, ...fields }));
 
 describe("ハッシュに入れる前の文字列", () => {
   it("run・paths・timeout か、ファイルの一覧と内容のどれかが違えば、違う文字列になる", () => {
-    const sideArb = fc.record({ check: definition(includedArb), files: lsFilesArb });
+    const sideArb = fc.record({ check: definitionArb, files: lsFilesArb });
     const pairArb = fc
       .tuple(sideArb, sideArb, fc.subarray(["run", "paths", "timeout", "files"] as const))
       .map(([a, other, replaced]) => {
@@ -106,13 +104,13 @@ describe("ハッシュに入れる前の文字列", () => {
   });
 });
 
-function shuffledObject(entries: [string, unknown][]) {
+function shuffledObject(entries: [string, JsonValue][]) {
   return fc
     .shuffledSubarray(entries, { minLength: entries.length, maxLength: entries.length })
     .map((shuffled) => Object.fromEntries(shuffled));
 }
 
-function loadCheck(written: Record<string, unknown>): CheckDefinition {
+function loadCheck(written: { [key: string]: JsonValue }): CheckDefinition {
   const needed = neededIds.map((id) => ({ id, mode: "inline", run: "true", paths: ["**"] }));
   const result = parseConfig(JSON.stringify({ checks: [written, ...needed] }));
   if (result.status !== "loaded") throw new Error(JSON.stringify(result));
@@ -223,9 +221,9 @@ describe("paths が src/** のチェックを、本物の git リポジトリで
             return value;
           };
 
-          let previous = measure();
           for (const operation of operations) {
             const modelBefore = underSrc(model);
+            const before = measure();
             const existing = [...model.keys()].sort();
             const picked = (pick: number) => existing[pick % existing.length];
 
@@ -250,11 +248,9 @@ describe("paths が src/** のチェックを、本物の git リポジトリで
               }
             }
 
-            const current = measure();
-            expect(current !== previous, JSON.stringify(operation)).toBe(
+            expect(measure() !== before, JSON.stringify(operation)).toBe(
               underSrc(model) !== modelBefore,
             );
-            previous = current;
           }
         } finally {
           repo.cleanup();

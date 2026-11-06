@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { onTestFinished, test } from "vitest";
 
 export interface Repo {
   root: string;
@@ -59,4 +60,13 @@ export function createRepo(): Repo {
       rmSync(root, { recursive: true, force: true });
     },
   };
+}
+
+export function testWithRepo(prepare: (repo: Repo) => void = () => {}) {
+  return test.extend("repo", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    prepare(repo);
+    return repo;
+  });
 }
