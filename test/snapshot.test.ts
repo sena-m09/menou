@@ -1,4 +1,4 @@
-import { readdirSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { takeSnapshot } from "../src/snapshot";
@@ -17,6 +17,12 @@ afterEach(() => {
   vi.unstubAllEnvs();
   repo.cleanup();
 });
+
+function waitForNextSecond() {
+  const now = Math.floor(Date.now() / 1000);
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, (now + 1) * 1000 - Date.now());
+  return now + 1;
+}
 
 function treeOfCommittingEverything() {
   repo.commitAll();
@@ -52,6 +58,23 @@ describe("作業ツリー全体の tree", () => {
     repo.write("src/a.ts", "staged");
     repo.git("add", "src/a.ts");
     repo.write("src/a.ts", "working");
+
+    const { tree } = takeSnapshot(repo.root, []);
+
+    expect(tree).toBe(treeOfCommittingEverything());
+  });
+
+  it("git add した直後の同じ秒に同じ大きさで書き換えたファイルも、書き換えたあとの中身で取る", () => {
+    const second = waitForNextSecond();
+    repo.write("src/a.ts", "1");
+    repo.git("add", "src/a.ts");
+    repo.write("src/a.ts", "2");
+    const index = repo.git("rev-parse", "--path-format=absolute", "--git-path", "index").trim();
+    expect(
+      Math.floor(statSync(index).mtimeMs / 1000),
+      "同じ秒のうちに書き換えられませんでした",
+    ).toBe(second);
+    waitForNextSecond();
 
     const { tree } = takeSnapshot(repo.root, []);
 

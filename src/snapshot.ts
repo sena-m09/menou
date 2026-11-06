@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { copyFileSync, mkdirSync, rmSync } from "node:fs";
+import { type Stats, copyFileSync, mkdirSync, rmSync, statSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { git } from "./git";
 
@@ -34,9 +34,15 @@ export function takeSnapshot(dir: string, pathsList: readonly (readonly string[]
 }
 
 function copyRealIndex(from: string, to: string) {
+  let original: Stats;
   try {
+    // 写したあとに取ると、その間に差し替わったインデックスより新しい時刻を付けてしまう。
+    original = statSync(from);
     copyFileSync(from, to);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    return;
   }
+  // git はインデックスの mtime と同じ秒に書き換えたファイルだけ中身を見直すので、写した時刻のままだと見落とす。
+  utimesSync(to, original.atime, original.mtime);
 }
