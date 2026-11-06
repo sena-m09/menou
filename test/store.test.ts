@@ -57,6 +57,14 @@ describe("記録の読み書き", () => {
     expect(readRecord(locations, "format", fingerprintA)).toBeUndefined();
   });
 
+  it("run と paths が同じでフィンガープリントが重なる 2 つのチェックも、それぞれの記録を読める", () => {
+    writeRecord(locations, record({ id: "lint", result: "pass" }));
+    writeRecord(locations, record({ id: "format", result: "fail" }));
+
+    expect(readRecord(locations, "lint", fingerprintA)?.result).toBe("pass");
+    expect(readRecord(locations, "format", fingerprintA)?.result).toBe("fail");
+  });
+
   it("同じ id とフィンガープリントで書き直すと、あとの結果を読む", () => {
     writeRecord(locations, record({ result: "fail" }));
     writeRecord(locations, record({ result: "pass" }));
