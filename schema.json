@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "menou の設定（.menou.json）",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["checks"],
+  "properties": {
+    "$schema": {
+      "description": "エディタ補完用の JSON Schema の URL",
+      "type": "string"
+    },
+    "maxBlocks": {
+      "description": "1 セッションで連続ブロックできる上限。超えたら許可して人に通知する",
+      "type": "integer",
+      "minimum": 1,
+      "default": 3
+    },
+    "checks": {
+      "description": "チェック定義の配列",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "mode", "run", "paths"],
+        "properties": {
+          "id": {
+            "description": "一意な識別子。menou run <id> で使う。英小文字・数字・-・_ で書く",
+            "type": "string",
+            "pattern": "^[a-z0-9_-]+$"
+          },
+          "mode": {
+            "description": "実行方式",
+            "enum": ["inline", "evidence"]
+          },
+          "run": {
+            "description": "実行するシェルコマンド。終了コード 0 / 1 / その他で合格 / 不合格 / エラー",
+            "type": "string"
+          },
+          "paths": {
+            "description": "対象範囲（git の pathspec）。範囲内が変わったときだけ要求する。全ファイルなら [\"**\"]",
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string" }
+          },
+          "needs": {
+            "description": "前提となるチェックの id。前提が通るまで実行も判定もしない",
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "severity": {
+            "description": "warn は警告を出すだけで完了を許可する",
+            "enum": ["block", "warn"],
+            "default": "block"
+          },
+          "timeout": {
+            "description": "inline 方式でのタイムアウト（秒）。時間切れはエラーとして扱う",
+            "type": "integer",
+            "minimum": 1,
+            "default": 120
+          },
+          "hint": {
+            "description": "不足時の理由文に添える補足",
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
