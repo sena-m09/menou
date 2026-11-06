@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, vi } from "vitest";
 import { runCheck } from "../src/check-runner";
@@ -102,6 +102,22 @@ describe("タイムアウト", () => {
     const outcome = await runIn(dir, check("trap '' TERM; sleep 30", { timeout: 1 }), 200);
 
     expect(outcome).toEqual({ result: "error", cause: { kind: "timeout", seconds: 1 } });
+  });
+
+  it("SIGTERM を受けたコマンドが後片付けを終えるまで待ってから、タイムアウトのエラーにする", async ({
+    dir,
+  }) => {
+    const cleaned = join(dir, "cleaned");
+
+    const outcome = await runIn(
+      dir,
+      check(`trap 'sleep 0.2; echo done > "${cleaned}"; exit 0' TERM; sleep 30 & wait`, {
+        timeout: 1,
+      }),
+    );
+
+    expect(outcome).toEqual({ result: "error", cause: { kind: "timeout", seconds: 1 } });
+    expect(existsSync(cleaned)).toBe(true);
   });
 });
 

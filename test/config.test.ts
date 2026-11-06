@@ -301,6 +301,20 @@ describe("チェックどうしの関係", () => {
     expect(problemAt(config, "checks[0].needs")).toContain("a → b → c → a");
   });
 
+  it("needs の循環 1 つにつき、指摘は 1 件だけ出す", () => {
+    const config = {
+      checks: [
+        { ...lint, id: "a", needs: ["b"] },
+        { ...lint, id: "b", needs: ["c"] },
+        { ...lint, id: "c", needs: ["a"] },
+      ],
+    };
+
+    expect(problemsOf(config).problems).toEqual([
+      { path: "checks[0].needs", message: expect.stringContaining("循環") },
+    ]);
+  });
+
   it("循環していなければ、同じチェックを複数のチェックが needs に書いてもよい", () => {
     const config = {
       checks: [
