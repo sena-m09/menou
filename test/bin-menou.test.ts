@@ -3,23 +3,13 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, onTestFinished, vi } from "vitest";
 import { createRepo, type Repo } from "./repo";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const wrapper = join(repoRoot, "bin/menou");
 
-let pathDir: string;
-
-beforeEach(() => {
-  pathDir = mkdtempSync(join(tmpdir(), "menou-bin-"));
-});
-
-afterEach(() => {
-  rmSync(pathDir, { recursive: true, force: true });
-});
-
-function runWrapper(args: string[]) {
+function runWrapper(pathDir: string, args: string[]) {
   return spawnSync(wrapper, args, {
     env: { PATH: pathDir },
     encoding: "utf8",
@@ -28,11 +18,14 @@ function runWrapper(args: string[]) {
 
 describe("bin/menou", () => {
   it("node があれば、まとめた JS に引数をそのまま渡して実行する", () => {
-    const fakeNode = join(pathDir, "node");
+    const dir = mkdtempSync(join(tmpdir(), "menou-bin-"));
+    onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
+
+    const fakeNode = join(dir, "node");
     writeFileSync(fakeNode, "#!/bin/sh\nprintf '%s\\n' \"$@\"\n");
     chmodSync(fakeNode, 0o755);
 
-    const result = runWrapper(["run", "lint"]);
+    const result = runWrapper(dir, ["run", "lint"]);
 
     expect(result.status).toBe(0);
     const [script, ...args] = result.stdout.trimEnd().split("\n");
@@ -41,85 +34,72 @@ describe("bin/menou", () => {
   });
 
   it("node が PATH になければ、そのことを知らせて終了コード 127 で止まる", () => {
-    const result = runWrapper(["run", "lint"]);
+    const dir = mkdtempSync(join(tmpdir(), "menou-bin-"));
+    onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
+
+    const result = runWrapper(dir, ["run", "lint"]);
 
     expect(result.status).toBe(127);
     expect(result.stderr).toContain("node が見つかりません");
   });
 });
 
-async function waitUntilGone(pid: number) {
-  const alive = () => {
-    try {
-      process.kill(pid, 0);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-  for (let i = 0; i < 40 && alive(); i++) {
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  return !alive();
-}
-
 describe("ビルドした menou を bin/menou 経由で動かす", () => {
-  let repo: Repo;
-
   beforeAll(() => {
     execFileSync(process.execPath, ["scripts/build.mjs"], { cwd: repoRoot });
   }, 60_000);
 
-  beforeEach(() => {
-    repo = createRepo();
-    repo.write("src/a.ts", "a");
-  });
-
-  afterEach(() => {
-    repo.cleanup();
-  });
-
-  function configure(run: string) {
+  function configure(repo: Repo, run: string) {
     repo.write(
       ".menou.json",
       JSON.stringify({ checks: [{ id: "lint", mode: "evidence", run, paths: ["src/**"] }] }),
     );
   }
 
-  function menou(args: string[]) {
+  function menou(repo: Repo, args: string[]) {
     return spawnSync(wrapper, args, { cwd: repo.root, encoding: "utf8" });
   }
 
   it("menou run はチェックの出力をそのまま流し、不合格なら終了コード 1 で終わり、menou status に不合格と出る", () => {
-    configure("echo from-check; exit 1");
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("src/a.ts", "a");
 
-    const result = menou(["run", "lint"]);
+    configure(repo, "echo from-check; exit 1");
+
+    const result = menou(repo, ["run", "lint"]);
 
     expect(result.status).toBe(1);
     expect(result.stdout).toContain("from-check");
-    expect(menou(["status"]).stdout).toMatch(/lint\s+不合格/);
+    expect(menou(repo, ["status"]).stdout).toMatch(/lint\s+不合格/);
   });
 
   it("menou run に知らない id を渡すと、終了コード 3 で終わる", () => {
-    configure("exit 0");
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("src/a.ts", "a");
 
-    expect(menou(["run", "lnt"]).status).toBe(3);
+    configure(repo, "exit 0");
+
+    expect(menou(repo, ["run", "lnt"]).status).toBe(3);
   });
 
   it("menou run が Ctrl-C（SIGINT）を受けたら、チェックが起動したプロセスまで止めて、チェックが 0 で終わってもエラーとして終わる", async () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("src/a.ts", "a");
+
     const pidFile = join(repo.root, "pid");
-    configure(`trap 'exit 0' INT; sleep 30 & echo $! > "${pidFile}"; wait`);
+    configure(repo, `trap 'exit 0' INT; sleep 30 & echo $! > "${pidFile}"; wait`);
 
     const child = spawn(wrapper, ["run", "lint"], { cwd: repo.root, stdio: "ignore" });
     const exited = new Promise<number | null>((resolve) => child.on("exit", resolve));
-    for (let i = 0; i < 100 && !existsSync(pidFile); i++) {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
+    await vi.waitFor(() => expect(existsSync(pidFile)).toBe(true), { timeout: 5000 });
     const sleepPid = Number(readFileSync(pidFile, "utf8"));
     child.kill("SIGINT");
 
     expect(await exited).toBe(3);
-    expect(await waitUntilGone(sleepPid)).toBe(true);
-    expect(menou(["status"]).stdout).toMatch(/lint\s+エラー（シグナル SIGINT）/);
+    await vi.waitFor(() => expect(() => process.kill(sleepPid, 0)).toThrow(), { timeout: 2000 });
+    expect(menou(repo, ["status"]).stdout).toMatch(/lint\s+エラー（シグナル SIGINT）/);
   }, 20_000);
 });

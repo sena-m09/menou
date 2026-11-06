@@ -22,9 +22,13 @@ export type ConfigResult =
 export const configFileName = ".menou.json";
 
 export function loadConfig(root: string): ConfigResult {
-  let text: string;
+  const text = readConfigFile(root);
+  return typeof text === "string" ? parseConfig(text.replace(/^\uFEFF/, "")) : text;
+}
+
+function readConfigFile(root: string): string | Exclude<ConfigResult, ParsedConfig> {
   try {
-    text = readFileSync(join(root, configFileName), "utf8");
+    return readFileSync(join(root, configFileName), "utf8");
   } catch (error) {
     if (!(error instanceof Error)) throw error;
     const code = "code" in error && typeof error.code === "string" ? error.code : "";
@@ -37,7 +41,6 @@ export function loadConfig(root: string): ConfigResult {
       problems: [{ path: "", message: unreadable(code, error.message) }],
     };
   }
-  return parseConfig(text.replace(/^\uFEFF/, ""));
 }
 
 function unreadable(code: string, detail: string): string {
@@ -213,60 +216,33 @@ function needsGraph(checks: readonly NeedsNode[]): Map<string, string[]> {
 
 export function findNeedsCycles(checks: readonly NeedsNode[]): string[][] {
   const graph = needsGraph(checks);
-  const order = [...graph.keys()];
-  const index = new Map<string, number>();
-  const low = new Map<string, number>();
-  const stack: string[] = [];
-  const onStack = new Set<string>();
-  const cycles: string[][] = [];
+  const reachable = new Map([...graph.keys()].map((id) => [id, reachableFrom(id, graph)]));
+  const reaches = (from: string, to: string) => reachable.get(from)?.has(to) ?? false;
+  const onCycle = [...graph.keys()].filter((id) => reaches(id, id));
+  return onCycle
+    .map((id) => onCycle.filter((other) => reaches(id, other) && reaches(other, id)))
+    .filter((members, i) => members[0] === onCycle[i]);
+}
 
-  const visit = (id: string) => {
-    index.set(id, index.size);
-    low.set(id, index.size - 1);
-    stack.push(id);
-    onStack.add(id);
-    const needs = graph.get(id) ?? [];
-    for (const need of needs) {
-      if (!index.has(need)) {
-        visit(need);
-        low.set(id, Math.min(low.get(id) ?? 0, low.get(need) ?? 0));
-      } else if (onStack.has(need)) {
-        low.set(id, Math.min(low.get(id) ?? 0, index.get(need) ?? 0));
-      }
-    }
-    if (low.get(id) !== index.get(id)) return;
-
-    const members: string[] = [];
-    let member: string | undefined;
-    do {
-      member = stack.pop();
-      if (member === undefined) break;
-      onStack.delete(member);
-      members.push(member);
-    } while (member !== id);
-    if (members.length > 1 || needs.includes(id)) {
-      cycles.push(members.sort((a, b) => order.indexOf(a) - order.indexOf(b)));
-    }
-  };
-
-  for (const id of order) {
-    if (!index.has(id)) visit(id);
+function reachableFrom(start: string, graph: Map<string, string[]>): Set<string> {
+  const seen = new Set<string>();
+  const queue = [...(graph.get(start) ?? [])];
+  for (const id of queue) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    queue.push(...(graph.get(id) ?? []));
   }
-  return cycles.sort((a, b) => order.indexOf(a[0] ?? "") - order.indexOf(b[0] ?? ""));
+  return seen;
 }
 
 function loopFrom(start: string, graph: Map<string, string[]>, members: Set<string>): string[] {
   const previous = new Map<string, string>();
+  const pathTo = (id: string): string[] =>
+    id === start ? [] : [...pathTo(previous.get(id) ?? start), id];
   const queue = [start];
   for (const id of queue) {
     for (const need of graph.get(id) ?? []) {
-      if (need === start) {
-        const loop = [start];
-        for (let at = id; at !== start; at = previous.get(at) ?? start) {
-          loop.splice(1, 0, at);
-        }
-        return [...loop, start];
-      }
+      if (need === start) return [start, ...pathTo(id), start];
       if (members.has(need) && !previous.has(need)) {
         previous.set(need, id);
         queue.push(need);

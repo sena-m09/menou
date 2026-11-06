@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
+import * as v from "valibot";
 import type { CheckDefinition } from "./config";
+import { CheckDefinitionSchema } from "./config-schema";
 import { takeSnapshot } from "./snapshot";
 
 export const checkFieldRoles = {
@@ -13,9 +15,9 @@ export const checkFieldRoles = {
   hint: "excluded",
 } as const satisfies Record<keyof CheckDefinition, "included" | "excluded">;
 
-const includedFields = (Object.keys(checkFieldRoles) as (keyof CheckDefinition)[]).filter(
-  (field) => checkFieldRoles[field] === "included",
-);
+const includedFields = v
+  .parse(v.array(v.keyof(CheckDefinitionSchema)), Object.keys(checkFieldRoles))
+  .filter((field) => checkFieldRoles[field] === "included");
 
 export function fingerprintSource(check: CheckDefinition, files: string): string {
   const definition = Object.fromEntries(includedFields.map((field) => [field, check[field]]));

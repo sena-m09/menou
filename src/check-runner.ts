@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { setTimeout as sleep } from "node:timers/promises";
 import type { CheckDefinition } from "./config";
 import type { Outcome } from "./store";
 
@@ -11,7 +12,13 @@ export interface RunCheckOptions {
 
 const forwardedSignals = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
 
-export function runCheck(check: CheckDefinition, options: RunCheckOptions): Promise<Outcome> {
+type Ending =
+  | { kind: "exit"; code: number | null; signal: NodeJS.Signals | null }
+  | { kind: "spawn"; message: string };
+
+type Interruption = { kind: "timeout" } | { kind: "signal"; signal: NodeJS.Signals };
+
+export async function runCheck(check: CheckDefinition, options: RunCheckOptions): Promise<Outcome> {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     MENOU_OUT: options.outDir,
@@ -19,69 +26,77 @@ export function runCheck(check: CheckDefinition, options: RunCheckOptions): Prom
   };
   delete env.MENOU_BASELINE;
 
-  return new Promise((resolve) => {
-    const child = spawn("/bin/sh", ["-c", check.run], {
-      cwd: options.cwd,
-      env,
-      // 端末から読もうとすると別のプロセスグループでは止まってしまうので、stdin は渡さない。
-      stdio: ["ignore", options.stdio ?? "inherit", options.stdio ?? "inherit"],
-      // タイムアウトや Ctrl-C で、チェックが起動したプロセスまでまとめて止めるため。
-      detached: true,
-    });
+  const child = spawn("/bin/sh", ["-c", check.run], {
+    cwd: options.cwd,
+    env,
+    // 端末から読もうとすると別のプロセスグループでは止まってしまうので、stdin は渡さない。
+    stdio: ["ignore", options.stdio ?? "inherit", options.stdio ?? "inherit"],
+    // タイムアウトや Ctrl-C で、チェックが起動したプロセスまでまとめて止めるため。
+    detached: true,
+  });
+  const signalGroup = (signal: NodeJS.Signals) => {
+    if (child.pid === undefined) return;
+    try {
+      process.kill(-child.pid, signal);
+    } catch {
+      // グループが終わったあとの ESRCH なので無視する。
+    }
+  };
+  const finished = new AbortController();
 
-    let timedOut = false;
-    let interruptedBy: NodeJS.Signals | undefined;
-    let killTimer: NodeJS.Timeout | undefined;
-    const signalGroup = (signal: NodeJS.Signals) => {
-      if (child.pid === undefined) return;
-      try {
-        process.kill(-child.pid, signal);
-      } catch {
-        // グループが終わったあとの ESRCH なので無視する。
-      }
-    };
+  const ended = new Promise<Ending>((resolve) => {
+    child.on("error", (error) => resolve({ kind: "spawn", message: error.message }));
+    child.on("exit", (code, signal) => resolve({ kind: "exit", code, signal }));
+  });
+
+  const interrupted = new Promise<Interruption>((resolve) => {
     const forward = (signal: NodeJS.Signals) => {
-      interruptedBy = signal;
       signalGroup(signal);
+      resolve({ kind: "signal", signal });
     };
     for (const signal of forwardedSignals) process.on(signal, forward);
-
-    const timeoutTimer =
-      check.mode === "inline"
-        ? setTimeout(() => {
-            timedOut = true;
-            signalGroup("SIGTERM");
-            killTimer = setTimeout(() => signalGroup("SIGKILL"), options.graceMs ?? 5000);
-          }, check.timeout * 1000)
-        : undefined;
-
-    const finish = (outcome: Outcome) => {
-      clearTimeout(timeoutTimer);
-      clearTimeout(killTimer);
+    finished.signal.addEventListener("abort", () => {
       for (const signal of forwardedSignals) process.off(signal, forward);
-      resolve(outcome);
-    };
-
-    child.on("error", (error) => {
-      finish({ result: "error", cause: { kind: "spawn", message: error.message } });
-    });
-
-    child.on("exit", (code, signal) => {
-      if (timedOut || interruptedBy !== undefined) signalGroup("SIGKILL");
-      if (timedOut) {
-        finish({ result: "error", cause: { kind: "timeout", seconds: check.timeout } });
-      } else if (interruptedBy !== undefined || signal !== null) {
-        finish({
-          result: "error",
-          cause: { kind: "signal", signal: interruptedBy ?? signal ?? "" },
-        });
-      } else if (code === 0) {
-        finish({ result: "pass" });
-      } else if (code === 1) {
-        finish({ result: "fail" });
-      } else {
-        finish({ result: "error", cause: { kind: "exit", code: code ?? -1 } });
-      }
     });
   });
+
+  const timedOut =
+    check.mode === "inline"
+      ? sleep(check.timeout * 1000, undefined, { signal: finished.signal }).then(
+          (): Interruption => {
+            signalGroup("SIGTERM");
+            void sleep(options.graceMs ?? 5000, undefined, { signal: finished.signal }).then(
+              () => signalGroup("SIGKILL"),
+              () => {},
+            );
+            return { kind: "timeout" };
+          },
+        )
+      : new Promise<never>(() => {});
+
+  try {
+    const first = await Promise.race([ended, interrupted, timedOut]);
+    switch (first.kind) {
+      case "spawn":
+        return { result: "error", cause: { kind: "spawn", message: first.message } };
+      case "exit":
+        return judgeExit(first.code, first.signal);
+      case "timeout":
+      case "signal":
+        await ended;
+        signalGroup("SIGKILL");
+        return first.kind === "timeout"
+          ? { result: "error", cause: { kind: "timeout", seconds: check.timeout } }
+          : { result: "error", cause: { kind: "signal", signal: first.signal } };
+    }
+  } finally {
+    finished.abort();
+  }
+}
+
+function judgeExit(code: number | null, signal: NodeJS.Signals | null): Outcome {
+  if (signal !== null) return { result: "error", cause: { kind: "signal", signal } };
+  if (code === 0) return { result: "pass" };
+  if (code === 1) return { result: "fail" };
+  return { result: "error", cause: { kind: "exit", code: code ?? -1 } };
 }

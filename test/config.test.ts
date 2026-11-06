@@ -1,16 +1,17 @@
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { JsonValue } from "fast-check";
+import { describe, expect, it, onTestFinished } from "vitest";
 import { loadConfig, parseConfig } from "../src/config";
 
 const lint = { id: "lint", mode: "inline", run: "pnpm lint", paths: ["src/**"] };
 
-function parse(value: unknown) {
+function parse(value: JsonValue) {
   return parseConfig(JSON.stringify(value));
 }
 
-function problemsOf(value: unknown) {
+function problemsOf(value: JsonValue) {
   const result = parse(value);
   if (result.status !== "invalid") {
     throw new Error(`不正になるはずが読み込めました: ${JSON.stringify(value)}`);
@@ -18,46 +19,48 @@ function problemsOf(value: unknown) {
   return result;
 }
 
-function problemAt(value: unknown, path: string) {
+function problemAt(value: JsonValue, path: string) {
   const problem = problemsOf(value).problems.find((p) => p.path === path);
   expect(problem, `${path} の指摘がありません`).toBeDefined();
   return problem?.message ?? "";
 }
 
 describe(".menou.json のありか", () => {
-  let root: string;
-
-  beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), "menou-config-"));
-  });
-
-  afterEach(() => {
-    rmSync(root, { recursive: true, force: true });
-  });
-
   it("リポジトリのルートに .menou.json がなければ、設定なしとして扱う", () => {
-    expect(loadConfig(root)).toEqual({ status: "missing" });
+    const dir = mkdtempSync(join(tmpdir(), "menou-config-"));
+    onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
+
+    expect(loadConfig(dir)).toEqual({ status: "missing" });
   });
 
   it("渡されたリポジトリのルートにある .menou.json を読む", () => {
-    writeFileSync(join(root, ".menou.json"), JSON.stringify({ checks: [lint] }));
+    const dir = mkdtempSync(join(tmpdir(), "menou-config-"));
+    onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
 
-    expect(loadConfig(root)).toMatchObject({
+    writeFileSync(join(dir, ".menou.json"), JSON.stringify({ checks: [lint] }));
+
+    expect(loadConfig(dir)).toMatchObject({
       status: "loaded",
       config: { checks: [{ id: "lint" }] },
     });
   });
 
   it("先頭に BOM が付いた .menou.json も読める", () => {
-    writeFileSync(join(root, ".menou.json"), `\uFEFF${JSON.stringify({ checks: [lint] })}`);
+    const dir = mkdtempSync(join(tmpdir(), "menou-config-"));
+    onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
 
-    expect(loadConfig(root).status).toBe("loaded");
+    writeFileSync(join(dir, ".menou.json"), `\uFEFF${JSON.stringify({ checks: [lint] })}`);
+
+    expect(loadConfig(dir).status).toBe("loaded");
   });
 
   it(".menou.json がディレクトリになっていると不正になり、ファイルにするよう伝える", () => {
-    mkdirSync(join(root, ".menou.json"));
+    const dir = mkdtempSync(join(tmpdir(), "menou-config-"));
+    onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
 
-    const result = loadConfig(root);
+    mkdirSync(join(dir, ".menou.json"));
+
+    const result = loadConfig(dir);
 
     expect(result).toMatchObject({ status: "invalid", kind: "read" });
     expect(result.status === "invalid" && result.problems[0]?.message).toContain("ファイルにして");
@@ -66,11 +69,14 @@ describe(".menou.json のありか", () => {
   it.skipIf(process.getuid?.() === 0)(
     ".menou.json を読む権限がないと不正になり、権限を確かめるよう伝える",
     () => {
-      const file = join(root, ".menou.json");
+      const dir = mkdtempSync(join(tmpdir(), "menou-config-"));
+      onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
+
+      const file = join(dir, ".menou.json");
       writeFileSync(file, JSON.stringify({ checks: [lint] }));
       chmodSync(file, 0o000);
 
-      const result = loadConfig(root);
+      const result = loadConfig(dir);
 
       expect(result).toMatchObject({ status: "invalid", kind: "read" });
       expect(result.status === "invalid" && result.problems[0]?.message).toContain("権限");
@@ -180,8 +186,7 @@ describe("スキーマに合わない設定", () => {
   });
 
   it.each(["id", "mode", "run", "paths"])("チェック定義の %s がなければ不正になる", (key) => {
-    const check: Record<string, unknown> = { ...lint };
-    delete check[key];
+    const check = Object.fromEntries(Object.entries(lint).filter(([name]) => name !== key));
 
     expect(problemAt({ checks: [check] }, `checks[0].${key}`)).toContain("必須");
   });
@@ -302,6 +307,20 @@ describe("チェックどうしの関係", () => {
     };
 
     expect(problemAt(config, "checks[0].needs")).toContain("a → b → c → a");
+  });
+
+  it("needs の循環 1 つにつき、指摘は 1 件だけ出す", () => {
+    const config = {
+      checks: [
+        { ...lint, id: "a", needs: ["b"] },
+        { ...lint, id: "b", needs: ["c"] },
+        { ...lint, id: "c", needs: ["a"] },
+      ],
+    };
+
+    expect(problemsOf(config).problems).toEqual([
+      { path: "checks[0].needs", message: expect.stringContaining("循環") },
+    ]);
   });
 
   it("循環していなければ、同じチェックを複数のチェックが needs に書いてもよい", () => {

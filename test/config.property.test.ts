@@ -1,9 +1,10 @@
-import fc from "fast-check";
+import fc, { type JsonValue } from "fast-check";
 import { describe, expect, it } from "vitest";
 import { findNeedsCycles, parseConfig } from "../src/config";
 
-type Check = Record<string, unknown> & { id: string; needs?: string[] };
-type Config = Record<string, unknown> & { checks: Check[] };
+type JsonObject = { [key: string]: JsonValue };
+type Check = JsonObject & { id: string; paths: string[]; needs?: string[] };
+type Config = JsonObject & { checks: Check[] };
 
 const idArb = fc.stringMatching(/^[a-z0-9_-]{1,6}$/);
 
@@ -51,11 +52,11 @@ function withDefaults(config: Config) {
   };
 }
 
-function parse(value: unknown) {
+function parse(value: JsonValue) {
   return parseConfig(JSON.stringify(value));
 }
 
-function onCycleNaively(checks: readonly Check[]): Set<string> {
+function onCycleNaively(checks: readonly { id: string; needs?: string[] }[]): Set<string> {
   const needs = new Map(checks.map((check) => [check.id, check.needs ?? []]));
   const result = new Set<string>();
   for (const [start, first] of needs) {
@@ -198,11 +199,11 @@ describe("スキーマに合う設定", () => {
 });
 
 interface Broken {
-  value: unknown;
+  value: JsonValue;
   path: string;
 }
 
-function breakTopLevel(key: string, valueArb: fc.Arbitrary<unknown>): fc.Arbitrary<Broken> {
+function breakTopLevel(key: string, valueArb: fc.Arbitrary<JsonValue>): fc.Arbitrary<Broken> {
   return fc
     .tuple(validConfigArb, valueArb)
     .map(([config, value]) => ({ value: { ...config, [key]: value }, path: key }));
@@ -210,13 +211,13 @@ function breakTopLevel(key: string, valueArb: fc.Arbitrary<unknown>): fc.Arbitra
 
 function breakCheck(
   key: (check: Check) => fc.Arbitrary<string>,
-  valueArb: fc.Arbitrary<unknown>,
+  valueArb: fc.Arbitrary<JsonValue>,
 ): fc.Arbitrary<Broken> {
   return nonEmptyConfigArb.chain((config) =>
     fc.nat({ max: config.checks.length - 1 }).chain((index) => {
-      const check = config.checks[index] ?? { id: "" };
+      const check = config.checks[index] ?? { id: "", paths: [] };
       return fc.tuple(key(check), valueArb).map(([name, value]) => {
-        const checks = [...config.checks];
+        const checks: JsonValue[] = [...config.checks];
         checks[index] = { ...check, [name]: value };
         return { value: { ...config, checks }, path: `checks[${index}].${name}` };
       });
@@ -227,9 +228,9 @@ function breakCheck(
 function removeFromCheck(key: string): fc.Arbitrary<Broken> {
   return nonEmptyConfigArb.chain((config) =>
     fc.nat({ max: config.checks.length - 1 }).map((index) => {
-      const checks = [...config.checks];
-      const { [key]: _removed, ...rest } = checks[index] ?? { id: "" };
-      checks[index] = rest as Check;
+      const checks: JsonValue[] = [...config.checks];
+      const { [key]: _removed, ...rest } = config.checks[index] ?? { id: "", paths: [] };
+      checks[index] = rest;
       return { value: { ...config, checks }, path: `checks[${index}].${key}` };
     }),
   );
@@ -238,11 +239,10 @@ function removeFromCheck(key: string): fc.Arbitrary<Broken> {
 function addEmptyPath(): fc.Arbitrary<Broken> {
   return nonEmptyConfigArb.chain((config) =>
     fc.nat({ max: config.checks.length - 1 }).chain((index) => {
-      const check = config.checks[index] ?? { id: "" };
-      const paths = check.paths as string[];
-      return fc.nat({ max: paths.length }).map((at) => {
+      const check = config.checks[index] ?? { id: "", paths: [] };
+      return fc.nat({ max: check.paths.length }).map((at) => {
         const checks = [...config.checks];
-        checks[index] = { ...check, paths: paths.toSpliced(at, 0, "") };
+        checks[index] = { ...check, paths: check.paths.toSpliced(at, 0, "") };
         return { value: { ...config, checks }, path: `checks[${index}].paths[${at}]` };
       });
     }),

@@ -1,10 +1,9 @@
 import { readFileSync } from "node:fs";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { JsonValue } from "fast-check";
+import { describe, expect, it, onTestFinished } from "vitest";
 import { type CheckDefinition, parseConfig } from "../src/config";
 import { checkFieldRoles, computeFingerprints } from "../src/fingerprint";
 import { createRepo, type Repo } from "./repo";
-
-let repo: Repo;
 
 const files = [
   "src/a.ts",
@@ -16,17 +15,7 @@ const files = [
   "eslint.config.js",
 ];
 
-beforeEach(() => {
-  repo = createRepo();
-  for (const path of files) repo.write(path, path);
-  repo.commitAll();
-});
-
-afterEach(() => {
-  repo.cleanup();
-});
-
-function check(fields: Record<string, unknown>): CheckDefinition {
+function check(fields: { [key: string]: JsonValue }): CheckDefinition {
   const result = parseConfig(
     JSON.stringify({
       checks: [{ id: "c", mode: "inline", run: "true", paths: ["**"], ...fields }],
@@ -38,15 +27,15 @@ function check(fields: Record<string, unknown>): CheckDefinition {
   return loaded;
 }
 
-function fingerprintOf(definition: CheckDefinition) {
+function fingerprintOf(repo: Repo, definition: CheckDefinition) {
   return computeFingerprints(repo.root, [definition]).fingerprints.get(definition.id);
 }
 
-function changes(paths: string[], edit: () => void) {
+function changes(repo: Repo, paths: string[], edit: () => void) {
   const definition = check({ paths });
-  const before = fingerprintOf(definition);
+  const before = fingerprintOf(repo, definition);
   edit();
-  return fingerprintOf(definition) !== before;
+  return fingerprintOf(repo, definition) !== before;
 }
 
 describe("04-config.md の paths の書き方", () => {
@@ -60,65 +49,120 @@ describe("04-config.md の paths の書き方", () => {
     [["eslint.config.*"], "eslint.config.js", "src/a.ts"],
     [["**", ":(exclude)docs/**"], "src/a.ts", "docs/x.md"],
   ])("%j は、%s を変えると変わり、%s を変えても変わらない", (paths, inside, outside) => {
-    expect(changes(paths, () => repo.write(inside, "changed"))).toBe(true);
-    expect(changes(paths, () => repo.write(outside, "changed"))).toBe(false);
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
+    expect(changes(repo, paths, () => repo.write(inside, "changed"))).toBe(true);
+    expect(changes(repo, paths, () => repo.write(outside, "changed"))).toBe(false);
   });
 
   it(".gitignore の対象は、paths に一致しても変えたときに変わらない", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
     repo.write(".gitignore", "*.log\n");
     repo.write("src/debug.log", "log");
 
-    expect(changes(["src/**"], () => repo.write("src/debug.log", "changed"))).toBe(false);
+    expect(changes(repo, ["src/**"], () => repo.write("src/debug.log", "changed"))).toBe(false);
   });
 
   it(".gitignore の対象でなければ、同じファイルを変えると変わる", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
     repo.write("src/debug.log", "log");
 
-    expect(changes(["src/**"], () => repo.write("src/debug.log", "changed"))).toBe(true);
+    expect(changes(repo, ["src/**"], () => repo.write("src/debug.log", "changed"))).toBe(true);
   });
 
   it("どのファイルにも一致しない paths でも、エラーにならずに計算できる", () => {
-    expect(fingerprintOf(check({ paths: ["nothing/**"] }))).toMatch(/^[0-9a-f]{64}$/);
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
+    expect(fingerprintOf(repo, check({ paths: ["nothing/**"] }))).toMatch(/^[0-9a-f]{64}$/);
   });
 });
 
 describe("paths の範囲のファイル", () => {
   it("コミットしていない変更で変わる", () => {
-    expect(changes(["src/**"], () => repo.write("src/a.ts", "changed"))).toBe(true);
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
+    expect(changes(repo, ["src/**"], () => repo.write("src/a.ts", "changed"))).toBe(true);
   });
 
   it("まだ追跡していないファイルを足すと変わる", () => {
-    expect(changes(["src/**"], () => repo.write("src/new.ts", "new"))).toBe(true);
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
+    expect(changes(repo, ["src/**"], () => repo.write("src/new.ts", "new"))).toBe(true);
   });
 
   it("消すと変わる", () => {
-    expect(changes(["src/**"], () => repo.remove("src/a.ts"))).toBe(true);
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
+    expect(changes(repo, ["src/**"], () => repo.remove("src/a.ts"))).toBe(true);
   });
 
   it("実行権限を変えると変わる", () => {
-    expect(changes(["src/**"], () => repo.setExecutable("src/a.ts", true))).toBe(true);
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
+    expect(changes(repo, ["src/**"], () => repo.setExecutable("src/a.ts", true))).toBe(true);
   });
 
   it("git add しただけでは変わらない", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
     repo.write("src/a.ts", "changed");
 
-    expect(changes(["src/**"], () => repo.git("add", "-A"))).toBe(false);
+    expect(changes(repo, ["src/**"], () => repo.git("add", "-A"))).toBe(false);
   });
 
   it("同じ内容なら、何度計算しても同じ値になる", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
     const definition = check({ paths: ["src/**"] });
     repo.write("src/new.ts", "new");
 
-    expect(fingerprintOf(definition)).toBe(fingerprintOf(definition));
+    expect(fingerprintOf(repo, definition)).toBe(fingerprintOf(repo, definition));
   });
 
   it("中身を変えて元に戻すと、元の値に戻る", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
     const definition = check({ paths: ["src/**"] });
-    const before = fingerprintOf(definition);
+    const before = fingerprintOf(repo, definition);
     repo.write("src/a.ts", "changed");
     repo.write("src/a.ts", "src/a.ts");
 
-    expect(fingerprintOf(definition)).toBe(before);
+    expect(fingerprintOf(repo, definition)).toBe(before);
   });
 });
 
@@ -129,14 +173,29 @@ describe("チェック定義", () => {
     ["paths の並び", { paths: ["src/**", "test/**"] }, { paths: ["test/**", "src/**"] }],
     ["timeout", { timeout: 60 }, { timeout: 61 }],
   ])("%s を変えると変わる", (_, before, after) => {
-    expect(fingerprintOf(check(after))).not.toBe(fingerprintOf(check(before)));
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
+    expect(fingerprintOf(repo, check(after))).not.toBe(fingerprintOf(repo, check(before)));
   });
 
   it("timeout を省くと、既定値の 120 を書いたときと同じ値になる", () => {
-    expect(fingerprintOf(check({}))).toBe(fingerprintOf(check({ timeout: 120 })));
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
+    expect(fingerprintOf(repo, check({}))).toBe(fingerprintOf(repo, check({ timeout: 120 })));
   });
 
   it("id が違っても、run・paths・timeout が同じなら同じ値になる", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
     const { fingerprints } = computeFingerprints(repo.root, [
       check({ id: "first" }),
       check({ id: "second", mode: "evidence", severity: "warn", hint: "h" }),
@@ -146,6 +205,11 @@ describe("チェック定義", () => {
   });
 
   it("複数のチェックを渡すと、作業ツリー全体の tree と、id ごとの値を返す", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
     const result = computeFingerprints(repo.root, [
       check({ id: "src", paths: ["src/**"] }),
       check({ id: "docs", paths: ["docs/**"] }),
