@@ -26,6 +26,11 @@ describe("書き方の決まり", () => {
     ["<型>", 'export const count = <number>JSON.parse("1");\n', "consistent-type-assertions"],
     ["unknown", "export function f(value: unknown) {\n  return value;\n}\n", "no-restricted-types"],
     ["any", "export function f(value: any) {\n  return value;\n}\n", "no-explicit-any"],
+    [
+      "非 null アサーション（x!）",
+      "export function f(value: string | undefined) {\n  return value!;\n}\n",
+      "no-non-null-assertion",
+    ],
   ] as const)("%s を書くと Lint が失敗する", ([, source, rule], { dir }) => {
     const { status, output } = lint(dir, source);
 
