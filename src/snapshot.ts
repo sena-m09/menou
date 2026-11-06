@@ -1,15 +1,7 @@
-import { randomBytes } from "node:crypto";
-import {
-  type Stats,
-  copyFileSync,
-  mkdirSync,
-  readdirSync,
-  rmSync,
-  statSync,
-  utimesSync,
-} from "node:fs";
+import { type Stats, copyFileSync, mkdirSync, rmSync, statSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { git } from "./git";
+import { removeStaleTemporaries, temporaryName } from "./temp-file";
 
 export interface Snapshot {
   tree: string;
@@ -24,8 +16,8 @@ export function takeSnapshot(dir: string, pathsList: readonly (readonly string[]
 
   const workDir = join(gitDir, "menou");
   mkdirSync(workDir, { recursive: true });
-  removeStaleIndexes(workDir);
-  const indexFile = join(workDir, tempIndexName(Date.now()));
+  removeStaleTemporaries(workDir, "index");
+  const indexFile = join(workDir, temporaryName("index"));
 
   try {
     copyRealIndex(realIndex, indexFile);
@@ -39,22 +31,6 @@ export function takeSnapshot(dir: string, pathsList: readonly (readonly string[]
   } finally {
     rmSync(indexFile, { force: true });
     rmSync(`${indexFile}.lock`, { force: true });
-  }
-}
-
-const staleAfterMs = 60 * 60 * 1000;
-const tempIndexPattern = /^index-(\d+)-\d+-[0-9a-f]+(\.lock)?$/;
-
-export function tempIndexName(createdAt: number): string {
-  return `index-${createdAt}-${process.pid}-${randomBytes(6).toString("hex")}`;
-}
-
-// 写した一時インデックスは mtime を実際のインデックスに合わせるので、作った時刻は名前から読む。
-function removeStaleIndexes(workDir: string) {
-  const now = Date.now();
-  for (const name of readdirSync(workDir)) {
-    const createdAt = Number(tempIndexPattern.exec(name)?.[1]);
-    if (now - createdAt > staleAfterMs) rmSync(join(workDir, name), { force: true });
   }
 }
 

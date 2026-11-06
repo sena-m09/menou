@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { takeSnapshot, tempIndexName } from "../src/snapshot";
+import { takeSnapshot } from "../src/snapshot";
+import { temporaryName } from "../src/temp-file";
 import { createRepo, type Repo } from "./repo";
 
 let repo: Repo;
@@ -177,7 +178,7 @@ describe("後片付け", () => {
     }
 
     it("作ってから 1 時間を過ぎたものは、次に取るときに消す", () => {
-      const stale = tempIndexName(Date.now() - hour - 60_000);
+      const stale = temporaryName("index", Date.now() - hour - 60_000);
       leave(stale);
       leave(`${stale}.lock`);
 
@@ -188,7 +189,7 @@ describe("後片付け", () => {
     });
 
     it("作ってから 1 時間以内のものは、ほかの menou が使っている途中かもしれないので、更新時刻が古くても消さない", () => {
-      const recent = tempIndexName(Date.now() - hour + 60_000);
+      const recent = temporaryName("index", Date.now() - hour + 60_000);
       leave(recent, new Date(Date.now() - 48 * hour));
 
       takeSnapshot(repo.root, [["src/**"]]);
