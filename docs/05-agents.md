@@ -10,7 +10,7 @@ Claude Code と Codex はどちらも Stop フックを持ち、`{"decision":"bl
 | 継続させる出力 | `{"decision":"block","reason":"..."}` | 同じ（理由文が新しいユーザープロンプトになる） |
 | 終了コード 2 + stderr | 継続 | 継続 |
 | ループ判定用の入力 | `stop_hook_active` | 同じ |
-| 編集前のフック | `PreToolUse`（Edit / Write / MultiEdit） | `PreToolUse`（apply_patch。`Edit` / `Write` でもマッチ） |
+| 編集前のフック | `PreToolUse`（Edit / Write / NotebookEdit） | `PreToolUse`（apply_patch。`Edit` / `Write` でもマッチ） |
 | 編集の拒否 | `hookSpecificOutput.permissionDecision: "deny"` | 同じ |
 | プラグインのフック定義 | `hooks/hooks.json` | 同じ場所を既定で読む。`CLAUDE_PLUGIN_ROOT` も設定される |
 
