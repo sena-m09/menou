@@ -124,6 +124,15 @@ describe("JSON として読めない設定", () => {
 });
 
 describe("スキーマに合わない設定", () => {
+  it("トップレベルが配列だと不正になり、オブジェクトで書くよう伝える", () => {
+    const result = parseConfig("[]");
+
+    expect(result).toMatchObject({ status: "invalid", kind: "schema" });
+    expect(result.status === "invalid" && result.problems).toEqual([
+      { path: "", message: expect.stringContaining("オブジェクト") },
+    ]);
+  });
+
   it("表にないキーは、トップレベルに書くと不正になり、キーの場所を伝える", () => {
     expect(problemsOf({ checks: [lint], maxblocks: 3 }).kind).toBe("schema");
     expect(problemAt({ checks: [lint], maxblocks: 3 }, "maxblocks")).toContain("知らないキー");
@@ -189,6 +198,12 @@ describe("スキーマに合わない設定", () => {
 
   it("hint の絵文字は 1 つで 1 文字と数える", () => {
     expect(parse({ checks: [{ ...lint, hint: "🙂".repeat(200) }] }).status).toBe("loaded");
+  });
+
+  it("hint の絵文字が 201 個あると、200 文字を超えるので不正になる", () => {
+    expect(
+      problemAt({ checks: [{ ...lint, hint: "🙂".repeat(201) }] }, "checks[0].hint"),
+    ).toContain("200 文字");
   });
 
   it.each(["Lint", "type check", "lint:fix", "検証"])(

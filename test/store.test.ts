@@ -123,6 +123,41 @@ describe("記録の読み書き", () => {
     expect(readRecord(locations, "lint", fingerprintA)).toBeUndefined();
   });
 
+  it("記録のファイルの中身が別の id のものなら、記録なしとして扱う", () => {
+    writeRecord(locations, record());
+    writeFileSync(
+      join(locations.resultsDir, "lint", `${fingerprintA}.json`),
+      JSON.stringify(record({ id: "format" })),
+    );
+
+    expect(readRecord(locations, "lint", fingerprintA)).toBeUndefined();
+  });
+
+  it.each([
+    ["終わった時刻がない", { id: "lint", fingerprint: fingerprintA, result: "pass" }],
+    [
+      "結果がない",
+      { id: "lint", fingerprint: fingerprintA, finishedAt: "2026-11-06T00:00:00.000Z" },
+    ],
+    [
+      "エラーなのに理由がない",
+      {
+        id: "lint",
+        fingerprint: fingerprintA,
+        result: "error",
+        finishedAt: "2026-11-06T00:00:00.000Z",
+      },
+    ],
+  ])("記録のファイルの中身に%sなら、記録なしとして扱う", (_, content) => {
+    writeRecord(locations, record());
+    writeFileSync(
+      join(locations.resultsDir, "lint", `${fingerprintA}.json`),
+      JSON.stringify(content),
+    );
+
+    expect(readRecord(locations, "lint", fingerprintA)).toBeUndefined();
+  });
+
   it("エラーの記録は、エラーになった理由ごと読み直せる", () => {
     const error = record({ result: "error", cause: { kind: "timeout", seconds: 120 } });
     writeRecord(locations, error);
