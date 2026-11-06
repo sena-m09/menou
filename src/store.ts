@@ -1,7 +1,7 @@
-import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { git } from "./git";
+import { removeStaleTemporaries, temporaryName } from "./temp-file";
 
 export type ErrorCause =
   | { kind: "exit"; code: number }
@@ -24,6 +24,7 @@ export type CheckRecord = {
 export interface Locations {
   root: string;
   resultsDir: string;
+  tempDir: string;
   worktreeDir: string;
 }
 
@@ -35,6 +36,7 @@ export function resolveLocations(dir: string): Locations {
   return {
     root,
     resultsDir: join(commonDir, "menou", "results"),
+    tempDir: join(commonDir, "menou", "tmp"),
     worktreeDir: join(gitDir, "menou"),
   };
 }
@@ -46,7 +48,9 @@ function recordPath(locations: Locations, id: string, fingerprint: string): stri
 export function writeRecord(locations: Locations, record: CheckRecord): void {
   const path = recordPath(locations, record.id, record.fingerprint);
   mkdirSync(join(locations.resultsDir, record.id), { recursive: true });
-  const temporary = `${path}.${process.pid}-${randomBytes(6).toString("hex")}.tmp`;
+  mkdirSync(locations.tempDir, { recursive: true });
+  removeStaleTemporaries(locations.tempDir, "record");
+  const temporary = join(locations.tempDir, temporaryName("record"));
   try {
     writeFileSync(temporary, `${JSON.stringify(record)}\n`);
     renameSync(temporary, path);

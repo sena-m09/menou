@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -9,6 +9,7 @@ import {
   resolveLocations,
   writeRecord,
 } from "../src/store";
+import { temporaryName } from "../src/temp-file";
 import { createRepo, type Repo } from "./repo";
 
 const fingerprintA = "a".repeat(64);
@@ -75,8 +76,34 @@ describe("記録の読み書き", () => {
   it("書き終えたら、一時ファイルを残さない", () => {
     writeRecord(locations, record());
 
-    const dir = join(locations.resultsDir, "lint");
-    expect(readdirSync(dir)).toEqual([`${fingerprintA}.json`]);
+    expect(readdirSync(join(locations.resultsDir, "lint"))).toEqual([`${fingerprintA}.json`]);
+    expect(readdirSync(locations.tempDir)).toEqual([]);
+  });
+
+  describe("強制終了で残った記録の一時ファイル", () => {
+    const hour = 60 * 60 * 1000;
+
+    function leave(name: string) {
+      mkdirSync(locations.tempDir, { recursive: true });
+      writeFileSync(join(locations.tempDir, name), "{");
+      return join(locations.tempDir, name);
+    }
+
+    it("作ってから 1 時間を過ぎたものは、次に記録を書くときに消す", () => {
+      const stale = leave(temporaryName("record", Date.now() - hour - 60_000));
+
+      writeRecord(locations, record());
+
+      expect(existsSync(stale)).toBe(false);
+    });
+
+    it("作ってから 1 時間以内のものは、ほかの menou が書いている途中かもしれないので消さない", () => {
+      const recent = leave(temporaryName("record", Date.now() - hour + 60_000));
+
+      writeRecord(locations, record());
+
+      expect(existsSync(recent)).toBe(true);
+    });
   });
 
   it("記録のファイルが JSON として読めなければ、記録なしとして扱う", () => {
