@@ -1,25 +1,33 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import * as v from "valibot";
 import { git } from "./git";
 import { removeStaleTemporaries, temporaryName } from "./temp-file";
 
-export type ErrorCause =
-  | { kind: "exit"; code: number }
-  | { kind: "signal"; signal: string }
-  | { kind: "timeout"; seconds: number }
-  | { kind: "spawn"; message: string }
-  | { kind: "modified" };
+const ErrorCauseSchema = v.variant("kind", [
+  v.object({ kind: v.literal("exit"), code: v.number() }),
+  v.object({ kind: v.literal("signal"), signal: v.string() }),
+  v.object({ kind: v.literal("timeout"), seconds: v.number() }),
+  v.object({ kind: v.literal("spawn"), message: v.string() }),
+  v.object({ kind: v.literal("modified") }),
+]);
 
-export type Outcome =
-  | { result: "pass" }
-  | { result: "fail" }
-  | { result: "error"; cause: ErrorCause };
+const OutcomeSchema = v.variant("result", [
+  v.object({ result: v.literal("pass") }),
+  v.object({ result: v.literal("fail") }),
+  v.object({ result: v.literal("error"), cause: ErrorCauseSchema }),
+]);
 
-export type CheckRecord = {
-  id: string;
-  fingerprint: string;
-  finishedAt: string;
-} & Outcome;
+const CheckRecordSchema = v.intersect([
+  v.object({ id: v.string(), fingerprint: v.string(), finishedAt: v.string() }),
+  OutcomeSchema,
+]);
+
+const RecordFileSchema = v.pipe(v.string(), v.parseJson(), CheckRecordSchema);
+
+export type ErrorCause = v.InferOutput<typeof ErrorCauseSchema>;
+export type Outcome = v.InferOutput<typeof OutcomeSchema>;
+export type CheckRecord = v.InferOutput<typeof CheckRecordSchema>;
 
 export interface Locations {
   root: string;
@@ -64,22 +72,17 @@ export function readRecord(
   id: string,
   fingerprint: string,
 ): CheckRecord | undefined {
-  let data: unknown;
+  let text: string;
   try {
-    data = JSON.parse(readFileSync(recordPath(locations, id, fingerprint), "utf8"));
+    text = readFileSync(recordPath(locations, id, fingerprint), "utf8");
   } catch {
     return undefined;
   }
-  return isRecord(data) && data.id === id && data.fingerprint === fingerprint ? data : undefined;
-}
-
-function isRecord(data: unknown): data is CheckRecord {
-  if (typeof data !== "object" || data === null) return false;
-  const record = data as Record<string, unknown>;
-  if (typeof record.id !== "string" || typeof record.fingerprint !== "string") return false;
-  if (typeof record.finishedAt !== "string") return false;
-  if (record.result === "pass" || record.result === "fail") return true;
-  return record.result === "error" && typeof record.cause === "object" && record.cause !== null;
+  const result = v.safeParse(RecordFileSchema, text);
+  if (!result.success || result.output.id !== id || result.output.fingerprint !== fingerprint) {
+    return undefined;
+  }
+  return result.output;
 }
 
 export function prepareOutDir(locations: Locations, id: string): string {
