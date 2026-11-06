@@ -1,4 +1,4 @@
-# let・as・unknown・any を Lint で止める
+# let・as・unknown・any・非 null アサーションを Lint で止める
 
 - 日付：2026-11-06
 - 状態：採用
@@ -15,18 +15,19 @@ oxlint 1.90.0 で、次の規則を使えば止められることを確かめま
 | `as` と `<型>` | `typescript/consistent-type-assertions` を `assertionStyle: "never"` にする。`as const` は通る |
 | `unknown` | `typescript/no-restricted-types` に `unknown` を書く |
 | `any` | `typescript/no-explicit-any`。`unknown` を止めると代わりに `any` を書きたくなるので、一緒に止める |
+| 非 null アサーション（`x!`） | `typescript/no-non-null-assertion`。今のコードにはないが、型を確かめずに `undefined` と `null` を外せるので、一緒に止める |
 
 `jsPlugins` は oxlint では試験段階の機能で、semver の対象外です。
 
 ## 決定
 
-- `src/`・`scripts/`・`test/` で `let`・`as`・`<型>`・`unknown`・`any` を書くと、`pnpm lint` が失敗するようにする。`as const` は使ってよい
-- 設定は `.oxlintrc.json` に書き、既定の規則に上の 4 つを足す。警告も失敗として扱うのは変えない
+- `src/`・`scripts/`・`test/` で `let`・`as`・`<型>`・`unknown`・`any`・`x!` を書くと、`pnpm lint` が失敗するようにする。`as const` は使ってよい
+- 設定は `.oxlintrc.json` に書き、既定の規則に上の 5 つを足す。警告も失敗として扱うのは変えない
 - `let` を止める規則は `scripts/lint-plugin.mjs` に書く
 - 規則が効いていることを `test/lint.test.ts` で確かめる
 - `oxlint-disable` などのコメントで規則を外さない
 
-この決定で、[20261104-lint-and-formatter.md](./20261104-lint-and-formatter.md) の「決定」にある「oxlint は既定の規則で使い」は、既定の規則に上の 4 つを足す形に代わります。ほかの決定は変わりません。
+この決定で、[20261104-lint-and-formatter.md](./20261104-lint-and-formatter.md) の「決定」にある「oxlint は既定の規則で使い」は、既定の規則に上の 5 つを足す形に代わります。ほかの決定は変わりません。
 
 ## 影響
 

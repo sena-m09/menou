@@ -13,10 +13,10 @@ menou を開発するときに守るルールです。設計の判断は `docs/`
 
 ## コードの書き方
 
-`src/`・`scripts/`・`test/` では、`let`・型アサーション（`as`）・`unknown`・`any` を使わないでください。書くと `pnpm lint` が失敗します。`oxlint-disable` などのコメントで規則を外さないでください。
+`src/`・`scripts/`・`test/` では、`let`・型アサーション（`as`）・`unknown`・`any`・非 null アサーション（`x!`）を使わないでください。書くと `pnpm lint` が失敗します。`oxlint-disable` などのコメントで規則を外さないでください。
 
 - 値は `const` で一度に決めてください。try の中で決まる値は、値を返す関数に切り出します。条件で変わる値は、条件演算子か関数で決めます。
-- 型は確かめてから付けてください。外から読んだ JSON は valibot のスキーマで検証し、`catch` した `error` は `instanceof Error` と `in` で絞ります。`as const` は使えます。
+- 型は確かめてから付けてください。外から読んだ JSON は valibot のスキーマで検証し、`catch` した `error` は `instanceof Error` と `in` で絞ります。`undefined` かもしれない値は、`x!` で外さずに `=== undefined` で確かめます。`as const` は使えます。
 - テストで使う一時ディレクトリやリポジトリは、`test/temp-dir.ts` の `testWithTempDir` や `test/repo.ts` の `testWithRepo` のフィクスチャから受け取ってください。不正な設定を作るときは、`unknown` の代わりに fast-check の `JsonValue` を使います。
 
 ## コミットメッセージの書き方
