@@ -229,3 +229,94 @@ describe("menou run <id>", () => {
     });
   });
 });
+
+describe("menou status", () => {
+  it("まだ実行していないチェックは、記録なしと、取るためのコマンドを表示する", async () => {
+    configure([{ id: "lint", run: "exit 0" }]);
+
+    const { code, stdout } = await runCli(["status"], repo.root);
+
+    expect(code).toBe(0);
+    expect(stdout).toMatch(/lint\s+記録なし.*menou run lint/);
+  });
+
+  it("今のフィンガープリントの記録の合否を、チェックごとに表示する", async () => {
+    configure([
+      { id: "lint", run: "exit 0" },
+      { id: "unit", run: "exit 1" },
+      { id: "e2e", run: "exit 5", mode: "evidence" },
+    ]);
+    for (const id of ["lint", "unit", "e2e"]) await runCli(["run", id], repo.root);
+
+    const { code, stdout } = await runCli(["status"], repo.root);
+
+    expect(code).toBe(0);
+    expect(stdout).toMatch(/lint\s+合格/);
+    expect(stdout).toMatch(/unit\s+不合格/);
+    expect(stdout).toMatch(/e2e\s+エラー（終了コード 5）/);
+  });
+
+  it("paths の中のファイルを変えると、記録なしに戻る", async () => {
+    configure([{ id: "lint", run: "exit 0" }]);
+    await runCli(["run", "lint"], repo.root);
+
+    repo.write("src/a.ts", "changed");
+
+    expect((await runCli(["status"], repo.root)).stdout).toMatch(/lint\s+記録なし/);
+  });
+
+  it("paths の外のファイルを変えても、記録はそのまま使う", async () => {
+    configure([{ id: "lint", run: "exit 0" }]);
+    await runCli(["run", "lint"], repo.root);
+
+    repo.write("README.md", "changed");
+
+    expect((await runCli(["status"], repo.root)).stdout).toMatch(/lint\s+合格/);
+  });
+
+  it("ある worktree で取った記録を、同じフィンガープリントの別の worktree でも使う", async () => {
+    configure([{ id: "lint", run: "exit 0" }]);
+    repo.commitAll();
+    const worktree = `${repo.root}-wt`;
+    repo.git("worktree", "add", "-q", worktree);
+    try {
+      await runCli(["run", "lint"], repo.root);
+
+      expect((await runCli(["status"], worktree)).stdout).toMatch(/lint\s+合格/);
+    } finally {
+      repo.git("worktree", "remove", "--force", worktree);
+    }
+  });
+
+  it("どのファイルにも一致しない paths があれば警告し、終了コードは 0 のまま", async () => {
+    configure([{ id: "lint", run: "exit 0", paths: ["src/**", "lib/**"] }]);
+
+    const { code, stderr } = await runCli(["status"], repo.root);
+
+    expect(code).toBe(0);
+    expect(stderr).toContain('lint の paths の "lib/**"');
+    expect(stderr).not.toContain('"src/**"');
+  });
+
+  it("除外の paths は、一致するファイルがなくても警告しない", async () => {
+    configure([{ id: "lint", run: "exit 0", paths: ["src/**", ":(exclude)lib/**"] }]);
+
+    expect((await runCli(["status"], repo.root)).stderr).toBe("");
+  });
+
+  it(".menou.json が不正なら、どこが不正かを伝えて終了コード 3 で終わる", async () => {
+    configure([{ id: "lint", run: "exit 0", timout: 1 }]);
+
+    const { code, stderr } = await runCli(["status"], repo.root);
+
+    expect(code).toBe(3);
+    expect(stderr).toContain("checks[0].timout");
+  });
+
+  it(".menou.json がなければ、menou が何もしないことを伝えて終了コード 0 で終わる", async () => {
+    const { code, stdout } = await runCli(["status"], repo.root);
+
+    expect(code).toBe(0);
+    expect(stdout).toContain(".menou.json");
+  });
+});

@@ -1,13 +1,15 @@
 import { version } from "../package.json";
 import { runCheck } from "./check-runner";
 import { type CheckDefinition, type Config, configFileName, loadConfig } from "./config";
-import { computeFingerprints } from "./fingerprint";
+import { computeFingerprints, fingerprint } from "./fingerprint";
 import { GitError } from "./git";
+import { takeSnapshot } from "./snapshot";
 import {
   type ErrorCause,
   type Locations,
   type Outcome,
   prepareOutDir,
+  readRecord,
   resolveLocations,
   writeRecord,
 } from "./store";
@@ -35,6 +37,7 @@ export async function run(args: readonly string[], context: Context): Promise<nu
 
   try {
     if (command === "run") return await runOne(rest[0], context);
+    if (command === "status") return status(context);
   } catch (error) {
     const message =
       error instanceof MenouError || error instanceof GitError ? error.message : String(error);
@@ -153,4 +156,71 @@ function describeError(check: CheckDefinition, cause: ErrorCause): string {
     case "modified":
       return `${check.id} の実行中に paths の中のファイルが書き換わりました。チェックのコマンドがファイルを書き換えているなら、確かめるだけのコマンドに変えてください。`;
   }
+}
+
+function status(context: Context): number {
+  const workspace = openWorkspace(context);
+  if (workspace === undefined) {
+    context.stdout(`このリポジトリには ${configFileName} がないので、menou は何もしません。\n`);
+    return 0;
+  }
+  const { locations, config } = workspace;
+  if (config.checks.length === 0) {
+    context.stdout(`${configFileName} にチェックがありません。\n`);
+    return 0;
+  }
+
+  const singles = config.checks.flatMap((check) =>
+    check.paths.filter((path) => !isExclude(path)).map((path) => ({ check, path })),
+  );
+  const { files } = takeSnapshot(locations.root, [
+    ...config.checks.map((check) => check.paths),
+    ...singles.map(({ path }) => [path]),
+  ]);
+
+  const width = Math.max(...config.checks.map((check) => check.id.length));
+  config.checks.forEach((check, i) => {
+    const record = readRecord(locations, check.id, fingerprint(check, files[i] ?? ""));
+    context.stdout(`${check.id.padEnd(width)}  ${describeStatus(check, record)}\n`);
+  });
+
+  singles.forEach(({ check, path }, i) => {
+    if (files[config.checks.length + i] === "") {
+      context.stderr(
+        `menou: ${check.id} の paths の "${path}" に一致するファイルがありません。綴りを確かめてください。\n`,
+      );
+    }
+  });
+  return 0;
+}
+
+function describeStatus(check: CheckDefinition, record: Outcome | undefined): string {
+  if (record === undefined) return `記録なし  menou run ${check.id} で取れます`;
+  switch (record.result) {
+    case "pass":
+      return "合格";
+    case "fail":
+      return `不合格  menou run ${check.id} でやり直せます`;
+    case "error":
+      return `エラー（${errorLabel(record.cause)}）  menou run ${check.id} でやり直せます`;
+  }
+}
+
+function errorLabel(cause: ErrorCause): string {
+  switch (cause.kind) {
+    case "exit":
+      return `終了コード ${cause.code}`;
+    case "signal":
+      return `シグナル ${cause.signal}`;
+    case "timeout":
+      return `${cause.seconds} 秒でタイムアウト`;
+    case "spawn":
+      return "実行できない";
+    case "modified":
+      return "実行中にファイルが書き換わった";
+  }
+}
+
+function isExclude(path: string): boolean {
+  return /^:(!|\^|\([^)]*\bexclude\b)/.test(path);
 }
