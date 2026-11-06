@@ -114,6 +114,13 @@ function describe(error: ErrorObject): Problem {
         path,
         message: '1 件以上書いてください。全ファイルを対象にするときは ["**"] と書きます。',
       };
+    case "minLength":
+      return {
+        path,
+        message: path.endsWith(".run")
+          ? "空にはできません。実行するコマンドを書いてください。"
+          : '空にはできません。全ファイルを対象にするときは "**" と書きます。',
+      };
     case "pattern":
       return { path, message: "英小文字・数字・-・_ だけで書いてください。" };
     default:

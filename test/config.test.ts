@@ -127,6 +127,20 @@ describe("スキーマに合わない設定", () => {
     expect(parse({ checks: [{ ...lint, paths: ["**"] }] }).status).toBe("loaded");
   });
 
+  it('paths に空の文字列があると不正になり、全ファイルを対象にする "**" の書き方を案内する', () => {
+    const config = { checks: [{ ...lint, paths: ["src/**", ""] }] };
+
+    expect(problemAt(config, "checks[0].paths[1]")).toContain('"**"');
+  });
+
+  it("run が空の文字列なら不正になり、実行するコマンドを書くよう伝える", () => {
+    expect(problemAt({ checks: [{ ...lint, run: "" }] }, "checks[0].run")).toContain("コマンド");
+  });
+
+  it("run は 1 文字でも読み込める", () => {
+    expect(parse({ checks: [{ ...lint, run: "x" }] }).status).toBe("loaded");
+  });
+
   it.each(["Lint", "type check", "lint:fix", "検証"])(
     "id に英小文字・数字・-・_ のほかの文字（%s）を使うと不正になる",
     (id) => {

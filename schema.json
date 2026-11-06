@@ -34,13 +34,14 @@
           },
           "run": {
             "description": "実行するシェルコマンド。終了コード 0 / 1 / その他で合格 / 不合格 / エラー",
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "paths": {
             "description": "対象範囲（git の pathspec）。範囲内が変わったときだけ要求する。全ファイルなら [\"**\"]",
             "type": "array",
             "minItems": 1,
-            "items": { "type": "string" }
+            "items": { "type": "string", "minLength": 1 }
           },
           "needs": {
             "description": "前提となるチェックの id。前提が通るまで実行も判定もしない",

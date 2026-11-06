@@ -12,8 +12,8 @@ function checkArb(id: string, earlierIds: string[]): fc.Arbitrary<Check> {
     {
       id: fc.constant(id),
       mode: fc.constantFrom("inline", "evidence"),
-      run: fc.string(),
-      paths: fc.array(fc.string(), { minLength: 1, maxLength: 3 }),
+      run: fc.string({ minLength: 1 }),
+      paths: fc.array(fc.string({ minLength: 1 }), { minLength: 1, maxLength: 3 }),
       needs: fc.subarray(earlierIds),
       severity: fc.constantFrom("block", "warn"),
       timeout: fc.integer({ min: 1, max: 100_000 }),
@@ -235,6 +235,20 @@ function removeFromCheck(key: string): fc.Arbitrary<Broken> {
   );
 }
 
+function addEmptyPath(): fc.Arbitrary<Broken> {
+  return nonEmptyConfigArb.chain((config) =>
+    fc.nat({ max: config.checks.length - 1 }).chain((index) => {
+      const check = config.checks[index] ?? { id: "" };
+      const paths = check.paths as string[];
+      return fc.nat({ max: paths.length }).map((at) => {
+        const checks = [...config.checks];
+        checks[index] = { ...check, paths: paths.toSpliced(at, 0, "") };
+        return { value: { ...config, checks }, path: `checks[${index}].paths[${at}]` };
+      });
+    }),
+  );
+}
+
 const fixed = (key: string) => () => fc.constant(key);
 
 const notPositiveIntegerArb = fc.oneof(
@@ -278,6 +292,8 @@ const brokenConfigs: [string, fc.Arbitrary<Broken>][] = [
   ["id が文字列でない", breakCheck(fixed("id"), notStringArb)],
   ["paths が空の配列", breakCheck(fixed("paths"), fc.constant([]))],
   ["paths が配列でない", breakCheck(fixed("paths"), notArrayArb)],
+  ["paths に空の文字列を入れる", addEmptyPath()],
+  ["run を空の文字列にする", breakCheck(fixed("run"), fc.constant(""))],
   ["needs が配列でない", breakCheck(fixed("needs"), notArrayArb)],
   ["run が文字列でない", breakCheck(fixed("run"), notStringArb)],
   ["hint が文字列でない", breakCheck(fixed("hint"), notStringArb)],
