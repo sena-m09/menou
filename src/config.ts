@@ -1,24 +1,9 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ErrorObject } from "ajv";
-import validate from "./validate-config.generated";
+import * as v from "valibot";
+import { type CheckDefinition, type Config, ConfigSchema } from "./config-schema";
 
-export interface CheckDefinition {
-  id: string;
-  mode: "inline" | "evidence";
-  run: string;
-  paths: readonly string[];
-  needs?: readonly string[];
-  severity: "block" | "warn";
-  timeout: number;
-  hint?: string;
-}
-
-export interface Config {
-  $schema?: string;
-  maxBlocks: number;
-  checks: readonly CheckDefinition[];
-}
+export type { CheckDefinition, Config } from "./config-schema";
 
 export interface Problem {
   path: string;
@@ -41,131 +26,133 @@ export function loadConfig(root: string): ConfigResult {
   try {
     text = readFileSync(join(root, configFileName), "utf8");
   } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
+    if (!(error instanceof Error)) throw error;
+    const code = "code" in error && typeof error.code === "string" ? error.code : "";
     if (code === "ENOENT") {
       return { status: "missing" };
     }
     return {
       status: "invalid",
       kind: "read",
-      problems: [{ path: "", message: unreadable(error) }],
+      problems: [{ path: "", message: unreadable(code, error.message) }],
     };
   }
   return parseConfig(text.replace(/^\uFEFF/, ""));
 }
 
-function unreadable(error: unknown): string {
-  switch ((error as NodeJS.ErrnoException).code) {
+function unreadable(code: string, detail: string): string {
+  switch (code) {
     case "EISDIR":
       return `${configFileName} がディレクトリになっています。ファイルにしてください。`;
     case "EACCES":
     case "EPERM":
       return `${configFileName} を読む権限がありません。ファイルの権限を確かめてください。`;
     default:
-      return `${configFileName} を読めません（${error instanceof Error ? error.message : String(error)}）。`;
+      return `${configFileName} を読めません（${detail}）。`;
   }
 }
 
+const ConfigFileSchema = v.pipe(v.string(), v.parseJson(), ConfigSchema);
+
+type ConfigIssue = v.InferIssue<typeof ConfigFileSchema>;
+
 export function parseConfig(text: string): ParsedConfig {
-  let data: unknown;
-  try {
-    data = JSON.parse(text);
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    return {
-      status: "invalid",
-      kind: "json",
-      problems: [
-        {
-          path: "",
-          message: `JSON として読めません（${detail}）。カンマや引用符が抜けていないか確かめてください。`,
-        },
-      ],
-    };
+  const result = v.safeParse(ConfigFileSchema, text);
+  if (!result.success) {
+    const [first] = result.issues;
+    if (first.type === "parse_json") {
+      return {
+        status: "invalid",
+        kind: "json",
+        problems: [
+          {
+            path: "",
+            message: `JSON として読めません（${first.received.slice(1, -1)}）。カンマや引用符が抜けていないか確かめてください。`,
+          },
+        ],
+      };
+    }
+    return { status: "invalid", kind: "schema", problems: toProblems(result.issues) };
   }
 
-  if (!validate(data)) {
-    return { status: "invalid", kind: "schema", problems: (validate.errors ?? []).map(describe) };
-  }
-
-  const config = data as Config;
-  const problems = checkRelations(config.checks);
+  const problems = checkRelations(result.output.checks);
   if (problems.length > 0) {
     return { status: "invalid", kind: "rules", problems };
   }
-  return { status: "loaded", config };
+  return { status: "loaded", config: result.output };
 }
 
-const typeNames: Record<string, string> = {
+function toProblems(issues: readonly ConfigIssue[]): Problem[] {
+  const seen = new Set<string>();
+  return issues.map(describe).filter((problem) => {
+    const key = `${problem.path}\n${problem.message}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+const typeNames: Record<"string" | "number" | "integer" | "array", string> = {
   string: "文字列",
+  number: "整数",
   integer: "整数",
   array: "配列",
-  object: "オブジェクト",
 };
 
-function describe(error: ErrorObject): Problem {
-  const path = toPath(error.instancePath);
-  const params = error.params as Record<string, unknown>;
-  switch (error.keyword) {
-    case "required":
-      return {
-        path: child(path, String(params.missingProperty)),
-        message: "必須のキーがありません。書き足してください。",
-      };
-    case "additionalProperties":
-      return {
-        path: child(path, String(params.additionalProperty)),
-        message: "知らないキーです。綴りを確かめるか、消してください。",
-      };
-    case "type":
-      return {
-        path,
-        message: `${typeNames[String(params.type)] ?? params.type}で書いてください。`,
-      };
-    case "enum":
-      return {
-        path,
-        message: `${(params.allowedValues as unknown[]).map((value) => JSON.stringify(value)).join(" か ")} のどちらかを書いてください。`,
-      };
-    case "minimum":
-      return { path, message: `${params.limit} 以上の整数を書いてください。` };
-    case "minItems":
-      return {
-        path,
-        message: '1 件以上書いてください。全ファイルを対象にするときは ["**"] と書きます。',
-      };
-    case "minLength":
+function describe(issue: ConfigIssue): Problem {
+  const items = issue.path ?? [];
+  const path = toPath(items);
+  switch (issue.type) {
+    case "strict_object":
+      if (issue.expected === "Object") {
+        return { path, message: "オブジェクトで書いてください。" };
+      }
+      if (Array.isArray(items.at(-1)?.input)) {
+        return { path: toPath(items.slice(0, -1)), message: "オブジェクトで書いてください。" };
+      }
+      if (issue.expected === "never") {
+        return { path, message: "知らないキーです。綴りを確かめるか、消してください。" };
+      }
+      return { path, message: "必須のキーがありません。書き足してください。" };
+    case "string":
+    case "number":
+    case "integer":
+    case "array":
+      return { path, message: `${typeNames[issue.type]}で書いてください。` };
+    case "min_value":
+      return { path, message: `${issue.requirement} 以上の整数を書いてください。` };
+    case "min_length":
+      if (Array.isArray(issue.input)) {
+        return {
+          path,
+          message: '1 件以上書いてください。全ファイルを対象にするときは ["**"] と書きます。',
+        };
+      }
       return {
         path,
         message: path.endsWith(".run")
           ? "空にはできません。実行するコマンドを書いてください。"
           : '空にはできません。全ファイルを対象にするときは "**" と書きます。',
       };
-    case "maxLength":
+    case "max_length":
       return {
         path,
-        message: `${params.limit} 文字までにしてください。長い案内は別のファイルに書き、そのファイルの場所を書いてください。`,
+        message: `${issue.requirement} 文字までにしてください。長い案内は別のファイルに書き、そのファイルの場所を書いてください。`,
       };
-    case "pattern":
+    case "regex":
       return { path, message: "英小文字・数字・-・_ だけで書いてください。" };
-    default:
-      return { path, message: error.message ?? error.keyword };
+    case "picklist":
+    case "parse_json":
+      return { path, message: issue.message };
   }
 }
 
-function toPath(instancePath: string): string {
-  return instancePath
-    .split("/")
-    .slice(1)
-    .map((segment) => segment.replaceAll("~1", "/").replaceAll("~0", "~"))
-    .reduce(
-      (path, segment) => (/^\d+$/.test(segment) ? `${path}[${segment}]` : child(path, segment)),
-      "",
-    );
-}
-
-function child(path: string, key: string): string {
-  return path === "" ? key : `${path}.${key}`;
+function toPath(items: readonly v.IssuePathItem[]): string {
+  return items.reduce((path, item) => {
+    if (item.type === "array") return `${path}[${item.key}]`;
+    if (item.type !== "object") return path;
+    return path === "" ? item.key : `${path}.${item.key}`;
+  }, "");
 }
 
 function checkRelations(checks: readonly CheckDefinition[]): Problem[] {

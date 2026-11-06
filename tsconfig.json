@@ -5,6 +5,7 @@
     "types": ["node"],
     "module": "preserve",
     "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
