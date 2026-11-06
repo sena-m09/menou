@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import {
   type CheckRecord,
   type Locations,
@@ -11,7 +11,7 @@ import {
   writeRecord,
 } from "../src/store";
 import { temporaryName } from "../src/temp-file";
-import { testWithRepo } from "./repo";
+import { createRepo } from "./repo";
 
 const fingerprintA = "a".repeat(64);
 const fingerprintB = "b".repeat(64);
@@ -32,33 +32,50 @@ function record({ outcome = { result: "pass" }, ...fields }: RecordOverrides = {
   };
 }
 
-const it = testWithRepo((repo) => {
-  repo.write("a.txt", "a");
-  repo.commitAll();
-}).extend("locations", ({ repo }) => resolveLocations(repo.root));
-
 describe("記録の読み書き", () => {
-  it("書いた記録を、同じ id とフィンガープリントで読み直せる", ({ locations }) => {
+  it("書いた記録を、同じ id とフィンガープリントで読み直せる", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("a.txt", "a");
+    repo.commitAll();
+    const locations = resolveLocations(repo.root);
+
     writeRecord(locations, record());
 
     expect(readRecord(locations, "lint", fingerprintA)).toEqual(record());
   });
 
-  it("フィンガープリントが違えば、記録はない", ({ locations }) => {
+  it("フィンガープリントが違えば、記録はない", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("a.txt", "a");
+    repo.commitAll();
+    const locations = resolveLocations(repo.root);
+
     writeRecord(locations, record());
 
     expect(readRecord(locations, "lint", fingerprintB)).toBeUndefined();
   });
 
-  it("フィンガープリントが同じでも、id が違うチェックの記録は読まない", ({ locations }) => {
+  it("フィンガープリントが同じでも、id が違うチェックの記録は読まない", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("a.txt", "a");
+    repo.commitAll();
+    const locations = resolveLocations(repo.root);
+
     writeRecord(locations, record({ id: "lint" }));
 
     expect(readRecord(locations, "format", fingerprintA)).toBeUndefined();
   });
 
-  it("run と paths が同じでフィンガープリントが重なる 2 つのチェックも、それぞれの記録を読める", ({
-    locations,
-  }) => {
+  it("run と paths が同じでフィンガープリントが重なる 2 つのチェックも、それぞれの記録を読める", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("a.txt", "a");
+    repo.commitAll();
+    const locations = resolveLocations(repo.root);
+
     writeRecord(locations, record({ id: "lint", outcome: { result: "pass" } }));
     writeRecord(locations, record({ id: "format", outcome: { result: "fail" } }));
 
@@ -66,14 +83,26 @@ describe("記録の読み書き", () => {
     expect(readRecord(locations, "format", fingerprintA)?.result).toBe("fail");
   });
 
-  it("同じ id とフィンガープリントで書き直すと、あとの結果を読む", ({ locations }) => {
+  it("同じ id とフィンガープリントで書き直すと、あとの結果を読む", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("a.txt", "a");
+    repo.commitAll();
+    const locations = resolveLocations(repo.root);
+
     writeRecord(locations, record({ outcome: { result: "fail" } }));
     writeRecord(locations, record({ outcome: { result: "pass" } }));
 
     expect(readRecord(locations, "lint", fingerprintA)?.result).toBe("pass");
   });
 
-  it("書き終えたら、一時ファイルを残さない", ({ locations }) => {
+  it("書き終えたら、一時ファイルを残さない", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("a.txt", "a");
+    repo.commitAll();
+    const locations = resolveLocations(repo.root);
+
     writeRecord(locations, record());
 
     expect(readdirSync(join(locations.resultsDir, "lint"))).toEqual([`${fingerprintA}.json`]);
@@ -89,7 +118,13 @@ describe("記録の読み書き", () => {
       return join(locations.tempDir, name);
     }
 
-    it("作ってから 1 時間を過ぎたものは、次に記録を書くときに消す", ({ locations }) => {
+    it("作ってから 1 時間を過ぎたものは、次に記録を書くときに消す", () => {
+      const repo = createRepo();
+      onTestFinished(() => repo.cleanup());
+      repo.write("a.txt", "a");
+      repo.commitAll();
+      const locations = resolveLocations(repo.root);
+
       const stale = leave(locations, temporaryName("record", Date.now() - hour - 60_000));
 
       writeRecord(locations, record());
@@ -97,9 +132,13 @@ describe("記録の読み書き", () => {
       expect(existsSync(stale)).toBe(false);
     });
 
-    it("作ってから 1 時間以内のものは、ほかの menou が書いている途中かもしれないので消さない", ({
-      locations,
-    }) => {
+    it("作ってから 1 時間以内のものは、ほかの menou が書いている途中かもしれないので消さない", () => {
+      const repo = createRepo();
+      onTestFinished(() => repo.cleanup());
+      repo.write("a.txt", "a");
+      repo.commitAll();
+      const locations = resolveLocations(repo.root);
+
       const recent = leave(locations, temporaryName("record", Date.now() - hour + 60_000));
 
       writeRecord(locations, record());
@@ -108,16 +147,26 @@ describe("記録の読み書き", () => {
     });
   });
 
-  it("記録のファイルが JSON として読めなければ、記録なしとして扱う", ({ locations }) => {
+  it("記録のファイルが JSON として読めなければ、記録なしとして扱う", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("a.txt", "a");
+    repo.commitAll();
+    const locations = resolveLocations(repo.root);
+
     writeRecord(locations, record());
     writeFileSync(join(locations.resultsDir, "lint", `${fingerprintA}.json`), "{");
 
     expect(readRecord(locations, "lint", fingerprintA)).toBeUndefined();
   });
 
-  it("記録のファイルの中身が別のフィンガープリントのものなら、記録なしとして扱う", ({
-    locations,
-  }) => {
+  it("記録のファイルの中身が別のフィンガープリントのものなら、記録なしとして扱う", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("a.txt", "a");
+    repo.commitAll();
+    const locations = resolveLocations(repo.root);
+
     writeRecord(locations, record());
     writeFileSync(
       join(locations.resultsDir, "lint", `${fingerprintA}.json`),
@@ -127,7 +176,13 @@ describe("記録の読み書き", () => {
     expect(readRecord(locations, "lint", fingerprintA)).toBeUndefined();
   });
 
-  it("記録のファイルの中身が別の id のものなら、記録なしとして扱う", ({ locations }) => {
+  it("記録のファイルの中身が別の id のものなら、記録なしとして扱う", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("a.txt", "a");
+    repo.commitAll();
+    const locations = resolveLocations(repo.root);
+
     writeRecord(locations, record());
     writeFileSync(
       join(locations.resultsDir, "lint", `${fingerprintA}.json`),
@@ -137,7 +192,7 @@ describe("記録の読み書き", () => {
     expect(readRecord(locations, "lint", fingerprintA)).toBeUndefined();
   });
 
-  it.for([
+  it.each([
     ["終わった時刻がない", { id: "lint", fingerprint: fingerprintA, result: "pass" }],
     [
       "結果がない",
@@ -152,7 +207,13 @@ describe("記録の読み書き", () => {
         finishedAt: "2026-11-06T00:00:00.000Z",
       },
     ],
-  ])("記録のファイルの中身に%sなら、記録なしとして扱う", ([, content], { locations }) => {
+  ])("記録のファイルの中身に%sなら、記録なしとして扱う", (_, content) => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("a.txt", "a");
+    repo.commitAll();
+    const locations = resolveLocations(repo.root);
+
     writeRecord(locations, record());
     writeFileSync(
       join(locations.resultsDir, "lint", `${fingerprintA}.json`),
@@ -162,7 +223,13 @@ describe("記録の読み書き", () => {
     expect(readRecord(locations, "lint", fingerprintA)).toBeUndefined();
   });
 
-  it("エラーの記録は、エラーになった理由ごと読み直せる", ({ locations }) => {
+  it("エラーの記録は、エラーになった理由ごと読み直せる", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("a.txt", "a");
+    repo.commitAll();
+    const locations = resolveLocations(repo.root);
+
     const error = record({
       outcome: { result: "error", cause: { kind: "timeout", seconds: 120 } },
     });
@@ -173,25 +240,35 @@ describe("記録の読み書き", () => {
 });
 
 describe("git worktree での置き場所", () => {
-  const worktreeTest = it.extend("worktree", ({ repo }, { onCleanup }) => {
+  it("ある worktree で書いた記録を、別の worktree から読める", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("a.txt", "a");
+    repo.commitAll();
+    const locations = resolveLocations(repo.root);
     const worktree = `${repo.root}-wt`;
     repo.git("worktree", "add", "-q", worktree);
-    onCleanup(() => {
+    onTestFinished(() => {
       repo.git("worktree", "remove", "--force", worktree);
     });
-    return worktree;
+
+    writeRecord(resolveLocations(worktree), record());
+
+    expect(readRecord(locations, "lint", fingerprintA)).toEqual(record());
   });
 
-  worktreeTest(
-    "ある worktree で書いた記録を、別の worktree から読める",
-    ({ locations, worktree }) => {
-      writeRecord(resolveLocations(worktree), record());
+  it("MENOU_OUT のディレクトリは worktree ごとに分かれる", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("a.txt", "a");
+    repo.commitAll();
+    const locations = resolveLocations(repo.root);
+    const worktree = `${repo.root}-wt`;
+    repo.git("worktree", "add", "-q", worktree);
+    onTestFinished(() => {
+      repo.git("worktree", "remove", "--force", worktree);
+    });
 
-      expect(readRecord(locations, "lint", fingerprintA)).toEqual(record());
-    },
-  );
-
-  worktreeTest("MENOU_OUT のディレクトリは worktree ごとに分かれる", ({ locations, worktree }) => {
     expect(prepareOutDir(resolveLocations(worktree), "lint")).not.toBe(
       prepareOutDir(locations, "lint"),
     );
@@ -199,13 +276,25 @@ describe("git worktree での置き場所", () => {
 });
 
 describe("MENOU_OUT のディレクトリ", () => {
-  it("まだなければ作る", ({ locations }) => {
+  it("まだなければ作る", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("a.txt", "a");
+    repo.commitAll();
+    const locations = resolveLocations(repo.root);
+
     const dir = prepareOutDir(locations, "review");
 
     expect(readdirSync(dir)).toEqual([]);
   });
 
-  it("前の実行で書き出したファイルを消して、空にする", ({ locations }) => {
+  it("前の実行で書き出したファイルを消して、空にする", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("a.txt", "a");
+    repo.commitAll();
+    const locations = resolveLocations(repo.root);
+
     const dir = prepareOutDir(locations, "review");
     writeFileSync(join(dir, "findings.md"), "old");
 
@@ -213,9 +302,13 @@ describe("MENOU_OUT のディレクトリ", () => {
     expect(existsSync(join(dir, "findings.md"))).toBe(false);
   });
 
-  it("チェックごとに分かれていて、ほかのチェックの書き出したファイルは消さない", ({
-    locations,
-  }) => {
+  it("チェックごとに分かれていて、ほかのチェックの書き出したファイルは消さない", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("a.txt", "a");
+    repo.commitAll();
+    const locations = resolveLocations(repo.root);
+
     const lintDir = prepareOutDir(locations, "lint");
     writeFileSync(join(lintDir, "report.txt"), "lint");
 
@@ -224,10 +317,13 @@ describe("MENOU_OUT のディレクトリ", () => {
     expect(existsSync(join(lintDir, "report.txt"))).toBe(true);
   });
 
-  it("作業ツリーの外（git ディレクトリの中）にあり、フィンガープリントの対象にならない", ({
-    repo,
-    locations,
-  }) => {
+  it("作業ツリーの外（git ディレクトリの中）にあり、フィンガープリントの対象にならない", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("a.txt", "a");
+    repo.commitAll();
+    const locations = resolveLocations(repo.root);
+
     const dir = prepareOutDir(locations, "review");
 
     expect(dir.startsWith(join(repo.root, ".git"))).toBe(true);

@@ -1,9 +1,9 @@
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { JsonValue } from "fast-check";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import { loadConfig, parseConfig } from "../src/config";
-import { testWithTempDir } from "./temp-dir";
 
 const lint = { id: "lint", mode: "inline", run: "pnpm lint", paths: ["src/**"] };
 
@@ -25,14 +25,18 @@ function problemAt(value: JsonValue, path: string) {
   return problem?.message ?? "";
 }
 
-const dirTest = testWithTempDir("menou-config-");
-
 describe(".menou.json のありか", () => {
-  dirTest("リポジトリのルートに .menou.json がなければ、設定なしとして扱う", ({ dir }) => {
+  it("リポジトリのルートに .menou.json がなければ、設定なしとして扱う", () => {
+    const dir = mkdtempSync(join(tmpdir(), "menou-config-"));
+    onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
+
     expect(loadConfig(dir)).toEqual({ status: "missing" });
   });
 
-  dirTest("渡されたリポジトリのルートにある .menou.json を読む", ({ dir }) => {
+  it("渡されたリポジトリのルートにある .menou.json を読む", () => {
+    const dir = mkdtempSync(join(tmpdir(), "menou-config-"));
+    onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
+
     writeFileSync(join(dir, ".menou.json"), JSON.stringify({ checks: [lint] }));
 
     expect(loadConfig(dir)).toMatchObject({
@@ -41,29 +45,33 @@ describe(".menou.json のありか", () => {
     });
   });
 
-  dirTest("先頭に BOM が付いた .menou.json も読める", ({ dir }) => {
+  it("先頭に BOM が付いた .menou.json も読める", () => {
+    const dir = mkdtempSync(join(tmpdir(), "menou-config-"));
+    onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
+
     writeFileSync(join(dir, ".menou.json"), `\uFEFF${JSON.stringify({ checks: [lint] })}`);
 
     expect(loadConfig(dir).status).toBe("loaded");
   });
 
-  dirTest(
-    ".menou.json がディレクトリになっていると不正になり、ファイルにするよう伝える",
-    ({ dir }) => {
-      mkdirSync(join(dir, ".menou.json"));
+  it(".menou.json がディレクトリになっていると不正になり、ファイルにするよう伝える", () => {
+    const dir = mkdtempSync(join(tmpdir(), "menou-config-"));
+    onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
 
-      const result = loadConfig(dir);
+    mkdirSync(join(dir, ".menou.json"));
 
-      expect(result).toMatchObject({ status: "invalid", kind: "read" });
-      expect(result.status === "invalid" && result.problems[0]?.message).toContain(
-        "ファイルにして",
-      );
-    },
-  );
+    const result = loadConfig(dir);
 
-  dirTest.skipIf(process.getuid?.() === 0)(
+    expect(result).toMatchObject({ status: "invalid", kind: "read" });
+    expect(result.status === "invalid" && result.problems[0]?.message).toContain("ファイルにして");
+  });
+
+  it.skipIf(process.getuid?.() === 0)(
     ".menou.json を読む権限がないと不正になり、権限を確かめるよう伝える",
-    ({ dir }) => {
+    () => {
+      const dir = mkdtempSync(join(tmpdir(), "menou-config-"));
+      onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
+
       const file = join(dir, ".menou.json");
       writeFileSync(file, JSON.stringify({ checks: [lint] }));
       chmodSync(file, 0o000);

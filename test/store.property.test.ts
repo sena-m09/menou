@@ -1,7 +1,7 @@
 import fc from "fast-check";
-import { describe, expect } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import { type CheckRecord, readRecord, resolveLocations, writeRecord } from "../src/store";
-import { testWithRepo } from "./repo";
+import { createRepo } from "./repo";
 
 const recordArb: fc.Arbitrary<CheckRecord> = fc
   .record({
@@ -27,10 +27,12 @@ const recordArb: fc.Arbitrary<CheckRecord> = fc
   })
   .map(({ outcome, ...rest }) => ({ ...rest, ...outcome }));
 
-const it = testWithRepo().extend("locations", ({ repo }) => resolveLocations(repo.root));
-
 describe("記録", () => {
-  it("書いて読み直すと、同じ内容が返る", ({ locations }) => {
+  it("書いて読み直すと、同じ内容が返る", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    const locations = resolveLocations(repo.root);
+
     fc.assert(
       fc.property(recordArb, (record) => {
         writeRecord(locations, record);

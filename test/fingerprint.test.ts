@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import type { JsonValue } from "fast-check";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import { type CheckDefinition, parseConfig } from "../src/config";
 import { checkFieldRoles, computeFingerprints } from "../src/fingerprint";
-import { type Repo, testWithRepo } from "./repo";
+import { createRepo, type Repo } from "./repo";
 
 const files = [
   "src/a.ts",
@@ -14,11 +14,6 @@ const files = [
   "docs/sub/y.md",
   "eslint.config.js",
 ];
-
-const repoTest = testWithRepo((repo) => {
-  for (const path of files) repo.write(path, path);
-  repo.commitAll();
-});
 
 function check(fields: { [key: string]: JsonValue }): CheckDefinition {
   const result = parseConfig(
@@ -44,7 +39,7 @@ function changes(repo: Repo, paths: string[], edit: () => void) {
 }
 
 describe("04-config.md の paths の書き方", () => {
-  repoTest.for<[string[], string, string]>([
+  it.each([
     [["src"], "src/sub/b.ts", "srcx/c.ts"],
     [["src/"], "src/sub/b.ts", "srcx/c.ts"],
     [["src/*"], "src/a.ts", "src/sub/b.ts"],
@@ -53,63 +48,115 @@ describe("04-config.md の paths の書き方", () => {
     [["**/*.md"], "docs/sub/y.md", "eslint.config.js"],
     [["eslint.config.*"], "eslint.config.js", "src/a.ts"],
     [["**", ":(exclude)docs/**"], "src/a.ts", "docs/x.md"],
-  ])(
-    "%j は、%s を変えると変わり、%s を変えても変わらない",
-    ([paths, inside, outside], { repo }) => {
-      expect(changes(repo, paths, () => repo.write(inside, "changed"))).toBe(true);
-      expect(changes(repo, paths, () => repo.write(outside, "changed"))).toBe(false);
-    },
-  );
+  ])("%j は、%s を変えると変わり、%s を変えても変わらない", (paths, inside, outside) => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
 
-  repoTest(".gitignore の対象は、paths に一致しても変えたときに変わらない", ({ repo }) => {
+    expect(changes(repo, paths, () => repo.write(inside, "changed"))).toBe(true);
+    expect(changes(repo, paths, () => repo.write(outside, "changed"))).toBe(false);
+  });
+
+  it(".gitignore の対象は、paths に一致しても変えたときに変わらない", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
     repo.write(".gitignore", "*.log\n");
     repo.write("src/debug.log", "log");
 
     expect(changes(repo, ["src/**"], () => repo.write("src/debug.log", "changed"))).toBe(false);
   });
 
-  repoTest(".gitignore の対象でなければ、同じファイルを変えると変わる", ({ repo }) => {
+  it(".gitignore の対象でなければ、同じファイルを変えると変わる", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
     repo.write("src/debug.log", "log");
 
     expect(changes(repo, ["src/**"], () => repo.write("src/debug.log", "changed"))).toBe(true);
   });
 
-  repoTest("どのファイルにも一致しない paths でも、エラーにならずに計算できる", ({ repo }) => {
+  it("どのファイルにも一致しない paths でも、エラーにならずに計算できる", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
     expect(fingerprintOf(repo, check({ paths: ["nothing/**"] }))).toMatch(/^[0-9a-f]{64}$/);
   });
 });
 
 describe("paths の範囲のファイル", () => {
-  repoTest("コミットしていない変更で変わる", ({ repo }) => {
+  it("コミットしていない変更で変わる", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
     expect(changes(repo, ["src/**"], () => repo.write("src/a.ts", "changed"))).toBe(true);
   });
 
-  repoTest("まだ追跡していないファイルを足すと変わる", ({ repo }) => {
+  it("まだ追跡していないファイルを足すと変わる", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
     expect(changes(repo, ["src/**"], () => repo.write("src/new.ts", "new"))).toBe(true);
   });
 
-  repoTest("消すと変わる", ({ repo }) => {
+  it("消すと変わる", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
     expect(changes(repo, ["src/**"], () => repo.remove("src/a.ts"))).toBe(true);
   });
 
-  repoTest("実行権限を変えると変わる", ({ repo }) => {
+  it("実行権限を変えると変わる", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
     expect(changes(repo, ["src/**"], () => repo.setExecutable("src/a.ts", true))).toBe(true);
   });
 
-  repoTest("git add しただけでは変わらない", ({ repo }) => {
+  it("git add しただけでは変わらない", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
     repo.write("src/a.ts", "changed");
 
     expect(changes(repo, ["src/**"], () => repo.git("add", "-A"))).toBe(false);
   });
 
-  repoTest("同じ内容なら、何度計算しても同じ値になる", ({ repo }) => {
+  it("同じ内容なら、何度計算しても同じ値になる", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
     const definition = check({ paths: ["src/**"] });
     repo.write("src/new.ts", "new");
 
     expect(fingerprintOf(repo, definition)).toBe(fingerprintOf(repo, definition));
   });
 
-  repoTest("中身を変えて元に戻すと、元の値に戻る", ({ repo }) => {
+  it("中身を変えて元に戻すと、元の値に戻る", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
     const definition = check({ paths: ["src/**"] });
     const before = fingerprintOf(repo, definition);
     repo.write("src/a.ts", "changed");
@@ -120,20 +167,35 @@ describe("paths の範囲のファイル", () => {
 });
 
 describe("チェック定義", () => {
-  repoTest.for<[string, { [key: string]: JsonValue }, { [key: string]: JsonValue }]>([
+  it.each([
     ["run", { run: "pnpm lint" }, { run: "pnpm test" }],
     ["paths", { paths: ["src/**"] }, { paths: ["src/**", "test/**"] }],
     ["paths の並び", { paths: ["src/**", "test/**"] }, { paths: ["test/**", "src/**"] }],
     ["timeout", { timeout: 60 }, { timeout: 61 }],
-  ])("%s を変えると変わる", ([, before, after], { repo }) => {
+  ])("%s を変えると変わる", (_, before, after) => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
     expect(fingerprintOf(repo, check(after))).not.toBe(fingerprintOf(repo, check(before)));
   });
 
-  repoTest("timeout を省くと、既定値の 120 を書いたときと同じ値になる", ({ repo }) => {
+  it("timeout を省くと、既定値の 120 を書いたときと同じ値になる", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
     expect(fingerprintOf(repo, check({}))).toBe(fingerprintOf(repo, check({ timeout: 120 })));
   });
 
-  repoTest("id が違っても、run・paths・timeout が同じなら同じ値になる", ({ repo }) => {
+  it("id が違っても、run・paths・timeout が同じなら同じ値になる", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
     const { fingerprints } = computeFingerprints(repo.root, [
       check({ id: "first" }),
       check({ id: "second", mode: "evidence", severity: "warn", hint: "h" }),
@@ -142,7 +204,12 @@ describe("チェック定義", () => {
     expect(fingerprints.get("first")).toBe(fingerprints.get("second"));
   });
 
-  repoTest("複数のチェックを渡すと、作業ツリー全体の tree と、id ごとの値を返す", ({ repo }) => {
+  it("複数のチェックを渡すと、作業ツリー全体の tree と、id ごとの値を返す", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    for (const path of files) repo.write(path, path);
+    repo.commitAll();
+
     const result = computeFingerprints(repo.root, [
       check({ id: "src", paths: ["src/**"] }),
       check({ id: "docs", paths: ["docs/**"] }),
