@@ -52,7 +52,7 @@ export async function run(args: readonly string[], context: Context): Promise<nu
   context.stderr(
     `menou: 知らないサブコマンドです: ${command ?? "（なし）"}\n使えるサブコマンド: ${[...subcommands].join(", ")}\n`,
   );
-  return 1;
+  return exitCodes.error;
 }
 
 interface Workspace {

@@ -43,11 +43,16 @@ describe("menou コマンド", () => {
     });
   });
 
-  it("知らないサブコマンドは失敗で終わり、フックのブロック（終了コード 2）とは区別できる", async () => {
+  it("知らないサブコマンドは、menou 側の失敗として終了コード 3 で終わり、使えるサブコマンドを伝える", async () => {
     const { code, stderr } = await runCli(["unknown"]);
-    expect(code).not.toBe(0);
-    expect(code).not.toBe(2);
+
+    expect(code).toBe(3);
     expect(stderr).toContain("unknown");
+    expect(stderr).toContain("run, status");
+  });
+
+  it("サブコマンドを渡さなければ、終了コード 3 で終わる", async () => {
+    expect((await runCli([])).code).toBe(3);
   });
 });
 
