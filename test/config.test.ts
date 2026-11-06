@@ -141,6 +141,21 @@ describe("スキーマに合わない設定", () => {
     expect(parse({ checks: [{ ...lint, run: "x" }] }).status).toBe("loaded");
   });
 
+  it("hint が 200 文字を超えると不正になり、長い案内は別のファイルに書くよう伝える", () => {
+    const message = problemAt({ checks: [{ ...lint, hint: "あ".repeat(201) }] }, "checks[0].hint");
+
+    expect(message).toContain("200 文字");
+    expect(message).toContain("別のファイル");
+  });
+
+  it("hint は 200 文字まで書ける", () => {
+    expect(parse({ checks: [{ ...lint, hint: "あ".repeat(200) }] }).status).toBe("loaded");
+  });
+
+  it("hint の絵文字は 1 つで 1 文字と数える", () => {
+    expect(parse({ checks: [{ ...lint, hint: "🙂".repeat(200) }] }).status).toBe("loaded");
+  });
+
   it.each(["Lint", "type check", "lint:fix", "検証"])(
     "id に英小文字・数字・-・_ のほかの文字（%s）を使うと不正になる",
     (id) => {

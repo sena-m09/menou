@@ -60,8 +60,9 @@
             "default": 120
           },
           "hint": {
-            "description": "不足時の理由文に添える補足",
-            "type": "string"
+            "description": "不足時の理由文に添える補足。200 文字まで。長い案内は別のファイルに書き、その場所を書く",
+            "type": "string",
+            "maxLength": 200
           }
         }
       }
