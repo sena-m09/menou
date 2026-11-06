@@ -29,7 +29,10 @@ export type ParsedConfig =
   | { status: "loaded"; config: Config }
   | { status: "invalid"; kind: "json" | "schema" | "rules"; problems: Problem[] };
 
-export type ConfigResult = { status: "missing" } | ParsedConfig;
+export type ConfigResult =
+  | { status: "missing" }
+  | { status: "invalid"; kind: "read"; problems: Problem[] }
+  | ParsedConfig;
 
 export const configFileName = ".menou.json";
 
@@ -38,12 +41,29 @@ export function loadConfig(root: string): ConfigResult {
   try {
     text = readFileSync(join(root, configFileName), "utf8");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
       return { status: "missing" };
     }
-    throw error;
+    return {
+      status: "invalid",
+      kind: "read",
+      problems: [{ path: "", message: unreadable(error) }],
+    };
   }
   return parseConfig(text.replace(/^\uFEFF/, ""));
+}
+
+function unreadable(error: unknown): string {
+  switch ((error as NodeJS.ErrnoException).code) {
+    case "EISDIR":
+      return `${configFileName} がディレクトリになっています。ファイルにしてください。`;
+    case "EACCES":
+    case "EPERM":
+      return `${configFileName} を読む権限がありません。ファイルの権限を確かめてください。`;
+    default:
+      return `${configFileName} を読めません（${error instanceof Error ? error.message : String(error)}）。`;
+  }
 }
 
 export function parseConfig(text: string): ParsedConfig {

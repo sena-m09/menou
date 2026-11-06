@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -53,6 +53,29 @@ describe(".menou.json のありか", () => {
 
     expect(loadConfig(root).status).toBe("loaded");
   });
+
+  it(".menou.json がディレクトリになっていると不正になり、ファイルにするよう伝える", () => {
+    mkdirSync(join(root, ".menou.json"));
+
+    const result = loadConfig(root);
+
+    expect(result).toMatchObject({ status: "invalid", kind: "read" });
+    expect(result.status === "invalid" && result.problems[0]?.message).toContain("ファイルにして");
+  });
+
+  it.skipIf(process.getuid?.() === 0)(
+    ".menou.json を読む権限がないと不正になり、権限を確かめるよう伝える",
+    () => {
+      const file = join(root, ".menou.json");
+      writeFileSync(file, JSON.stringify({ checks: [lint] }));
+      chmodSync(file, 0o000);
+
+      const result = loadConfig(root);
+
+      expect(result).toMatchObject({ status: "invalid", kind: "read" });
+      expect(result.status === "invalid" && result.problems[0]?.message).toContain("権限");
+    },
+  );
 });
 
 describe("正しい設定の読み込み", () => {
