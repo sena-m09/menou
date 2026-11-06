@@ -1,4 +1,4 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
-  "ignorePatterns": ["*.md", "pnpm-lock.yaml"]
+  "ignorePatterns": ["*.md", "pnpm-lock.yaml", "src/validate-config.generated.js"]
 }

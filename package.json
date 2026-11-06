@@ -11,7 +11,8 @@
     "menou": "dist/menou.cjs"
   },
   "files": [
-    "dist"
+    "dist",
+    "schema.json"
   ],
   "type": "module",
   "publishConfig": {
@@ -20,14 +21,17 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "lint": "node scripts/check-adr.ts && pnpm typecheck && oxlint --deny-warnings && oxfmt --check",
+    "lint": "node scripts/check-adr.ts && node scripts/generate-validator.ts --check && pnpm typecheck && oxlint --deny-warnings --ignore-pattern src/validate-config.generated.js && oxfmt --check",
     "format": "oxfmt",
     "build": "node scripts/build.mjs",
+    "generate": "node scripts/generate-validator.ts",
     "test:floor": "pnpm build && docker run --rm -v \"$PWD\":/w -w /w node:22.0.0 bin/menou --version"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
+    "ajv": "^8.20.0",
     "esbuild": "^0.28.2",
+    "fast-check": "^4.10.2",
     "oxfmt": "^0.75.0",
     "oxlint": "^1.90.0",
     "typescript": "~7.0.2",
