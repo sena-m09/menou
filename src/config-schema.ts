@@ -1,12 +1,5 @@
 import * as v from "valibot";
 
-export const hintMaxLength = 200;
-
-export const hintLength = v.check<string, string>(
-  (hint) => [...hint].length <= hintMaxLength,
-  `${hintMaxLength} 文字までにしてください。長い案内は別のファイルに書き、そのファイルの場所を書いてください。`,
-);
-
 function oneOf<const T extends readonly [string, ...string[]]>(options: T) {
   return v.picklist(
     options,
@@ -55,7 +48,7 @@ export const CheckDefinitionSchema = v.strictObject({
   hint: v.optional(
     v.pipe(
       v.string(),
-      hintLength,
+      v.maxLength(200),
       v.description(
         "不足時の理由文に添える補足。200 文字まで。長い案内は別のファイルに書き、その場所を書く",
       ),

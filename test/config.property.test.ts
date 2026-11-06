@@ -6,6 +6,12 @@ type Check = Record<string, unknown> & { id: string; needs?: string[] };
 type Config = Record<string, unknown> & { checks: Check[] };
 
 const idArb = fc.stringMatching(/^[a-z0-9_-]{1,6}$/);
+const hintArb = fc
+  .string({ unit: "binary", maxLength: 200, size: "max" })
+  .filter((hint) => hint.length <= 200);
+const tooLongHintArb = fc
+  .string({ unit: "binary", minLength: 101, maxLength: 400 })
+  .filter((hint) => hint.length > 200);
 
 function checkArb(id: string, earlierIds: string[]): fc.Arbitrary<Check> {
   return fc.record(
@@ -17,7 +23,7 @@ function checkArb(id: string, earlierIds: string[]): fc.Arbitrary<Check> {
       needs: fc.subarray(earlierIds),
       severity: fc.constantFrom("block", "warn"),
       timeout: fc.integer({ min: 1, max: 100_000 }),
-      hint: fc.string({ maxLength: 200 }),
+      hint: hintArb,
     },
     { requiredKeys: ["id", "mode", "run", "paths"] },
   );
@@ -297,10 +303,7 @@ const brokenConfigs: [string, fc.Arbitrary<Broken>][] = [
   ["needs が配列でない", breakCheck(fixed("needs"), notArrayArb)],
   ["run が文字列でない", breakCheck(fixed("run"), notStringArb)],
   ["hint が文字列でない", breakCheck(fixed("hint"), notStringArb)],
-  [
-    "hint が 200 文字を超える",
-    breakCheck(fixed("hint"), fc.string({ minLength: 201, maxLength: 400 })),
-  ],
+  ["hint が 200 文字を超える", breakCheck(fixed("hint"), tooLongHintArb)],
   ["$schema が文字列でない", breakTopLevel("$schema", notStringArb)],
   [
     "mode が inline でも evidence でもない",

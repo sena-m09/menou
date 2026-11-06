@@ -219,13 +219,13 @@ describe("スキーマに合わない設定", () => {
     expect(parse({ checks: [{ ...lint, hint: "あ".repeat(200) }] }).status).toBe("loaded");
   });
 
-  it("hint の絵文字は 1 つで 1 文字と数える", () => {
-    expect(parse({ checks: [{ ...lint, hint: "🙂".repeat(200) }] }).status).toBe("loaded");
+  it("hint の絵文字は 1 つを 2 文字と数えるので、100 個まで書ける", () => {
+    expect(parse({ checks: [{ ...lint, hint: "🙂".repeat(100) }] }).status).toBe("loaded");
   });
 
-  it("hint の絵文字が 201 個あると、200 文字を超えるので不正になる", () => {
+  it("hint の絵文字が 101 個あると、200 文字を超えるので不正になる", () => {
     expect(
-      problemAt({ checks: [{ ...lint, hint: "🙂".repeat(201) }] }, "checks[0].hint"),
+      problemAt({ checks: [{ ...lint, hint: "🙂".repeat(101) }] }, "checks[0].hint"),
     ).toContain("200 文字");
   });
 

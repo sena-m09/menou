@@ -134,10 +134,14 @@ function describe(issue: ConfigIssue): Problem {
           ? "空にはできません。実行するコマンドを書いてください。"
           : '空にはできません。全ファイルを対象にするときは "**" と書きます。',
       };
+    case "max_length":
+      return {
+        path,
+        message: `${issue.requirement} 文字までにしてください。長い案内は別のファイルに書き、そのファイルの場所を書いてください。`,
+      };
     case "regex":
       return { path, message: "英小文字・数字・-・_ だけで書いてください。" };
     case "picklist":
-    case "check":
     case "parse_json":
       return { path, message: issue.message };
   }
