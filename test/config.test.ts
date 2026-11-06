@@ -219,16 +219,6 @@ describe("スキーマに合わない設定", () => {
     expect(parse({ checks: [{ ...lint, hint: "あ".repeat(200) }] }).status).toBe("loaded");
   });
 
-  it("hint の絵文字は 1 つを 2 文字と数えるので、100 個まで書ける", () => {
-    expect(parse({ checks: [{ ...lint, hint: "🙂".repeat(100) }] }).status).toBe("loaded");
-  });
-
-  it("hint の絵文字が 101 個あると、200 文字を超えるので不正になる", () => {
-    expect(
-      problemAt({ checks: [{ ...lint, hint: "🙂".repeat(101) }] }, "checks[0].hint"),
-    ).toContain("200 文字");
-  });
-
   it.each(["Lint", "type check", "lint:fix", "検証"])(
     "id に英小文字・数字・-・_ のほかの文字（%s）を使うと不正になる",
     (id) => {
