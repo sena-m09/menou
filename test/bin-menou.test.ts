@@ -1,5 +1,5 @@
-import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -48,6 +48,21 @@ describe("bin/menou", () => {
   });
 });
 
+async function waitUntilGone(pid: number) {
+  const alive = () => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  for (let i = 0; i < 40 && alive(); i++) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return !alive();
+}
+
 describe("ビルドした menou を bin/menou 経由で動かす", () => {
   let repo: Repo;
 
@@ -90,4 +105,21 @@ describe("ビルドした menou を bin/menou 経由で動かす", () => {
 
     expect(menou(["run", "lnt"]).status).toBe(3);
   });
+
+  it("menou run が Ctrl-C（SIGINT）を受けたら、チェックが起動したプロセスまで止めて、チェックが 0 で終わってもエラーとして終わる", async () => {
+    const pidFile = join(repo.root, "pid");
+    configure(`trap 'exit 0' INT; sleep 30 & echo $! > "${pidFile}"; wait`);
+
+    const child = spawn(wrapper, ["run", "lint"], { cwd: repo.root, stdio: "ignore" });
+    const exited = new Promise<number | null>((resolve) => child.on("exit", resolve));
+    for (let i = 0; i < 100 && !existsSync(pidFile); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    const sleepPid = Number(readFileSync(pidFile, "utf8"));
+    child.kill("SIGINT");
+
+    expect(await exited).toBe(3);
+    expect(await waitUntilGone(sleepPid)).toBe(true);
+    expect(menou(["status"]).stdout).toMatch(/lint\s+エラー（シグナル SIGINT）/);
+  }, 20_000);
 });

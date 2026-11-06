@@ -30,6 +30,7 @@ export function runCheck(check: CheckDefinition, options: RunCheckOptions): Prom
     });
 
     let timedOut = false;
+    let interruptedBy: NodeJS.Signals | undefined;
     let killTimer: NodeJS.Timeout | undefined;
     const signalGroup = (signal: NodeJS.Signals) => {
       if (child.pid === undefined) return;
@@ -39,7 +40,10 @@ export function runCheck(check: CheckDefinition, options: RunCheckOptions): Prom
         // グループが終わったあとの ESRCH なので無視する。
       }
     };
-    const forward = (signal: NodeJS.Signals) => signalGroup(signal);
+    const forward = (signal: NodeJS.Signals) => {
+      interruptedBy = signal;
+      signalGroup(signal);
+    };
     for (const signal of forwardedSignals) process.on(signal, forward);
 
     const timeoutTimer =
@@ -63,11 +67,14 @@ export function runCheck(check: CheckDefinition, options: RunCheckOptions): Prom
     });
 
     child.on("exit", (code, signal) => {
+      if (timedOut || interruptedBy !== undefined) signalGroup("SIGKILL");
       if (timedOut) {
-        signalGroup("SIGKILL");
         finish({ result: "error", cause: { kind: "timeout", seconds: check.timeout } });
-      } else if (signal !== null) {
-        finish({ result: "error", cause: { kind: "signal", signal } });
+      } else if (interruptedBy !== undefined || signal !== null) {
+        finish({
+          result: "error",
+          cause: { kind: "signal", signal: interruptedBy ?? signal ?? "" },
+        });
       } else if (code === 0) {
         finish({ result: "pass" });
       } else if (code === 1) {
