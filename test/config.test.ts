@@ -83,6 +83,12 @@ describe("正しい設定の読み込み", () => {
   it("チェックが 1 つもない設定も読み込める", () => {
     expect(parse({ checks: [] }).status).toBe("loaded");
   });
+
+  it("paths と needs に同じ値を重ねて書いても読み込める", () => {
+    const e2e = { ...lint, id: "e2e", paths: ["src/**", "src/**"], needs: ["lint", "lint"] };
+
+    expect(parse({ checks: [lint, e2e] }).status).toBe("loaded");
+  });
 });
 
 describe("JSON として読めない設定", () => {
