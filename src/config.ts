@@ -43,7 +43,7 @@ export function loadConfig(root: string): ConfigResult {
     }
     throw error;
   }
-  return parseConfig(text);
+  return parseConfig(text.replace(/^\uFEFF/, ""));
 }
 
 export function parseConfig(text: string): ParsedConfig {

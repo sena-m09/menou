@@ -47,6 +47,12 @@ describe(".menou.json のありか", () => {
       config: { checks: [{ id: "lint" }] },
     });
   });
+
+  it("先頭に BOM が付いた .menou.json も読める", () => {
+    writeFileSync(join(root, ".menou.json"), `\uFEFF${JSON.stringify({ checks: [lint] })}`);
+
+    expect(loadConfig(root).status).toBe("loaded");
+  });
 });
 
 describe("正しい設定の読み込み", () => {
