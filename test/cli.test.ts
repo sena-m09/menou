@@ -976,4 +976,88 @@ describe("menou hook stop", () => {
       reason: expect.stringContaining("checks[0].timout"),
     });
   });
+
+  it.each([
+    ["JSON として読めない", "session_id=session-a", "JSON"],
+    ["session_id がない", JSON.stringify({ prompt_id: "prompt-1" }), "session_id"],
+    ["session_id が文字列でない", JSON.stringify({ session_id: 1 }), "session_id"],
+  ])(
+    "入力が %s なら、何も書かず、ゲートが働かなかったことと原因を systemMessage で知らせて通す",
+    async (_, stdin, cause) => {
+      const repo = createRepo();
+      onTestFinished(() => repo.cleanup());
+      repo.write("src/a.ts", "a");
+      repo.write(
+        ".menou.json",
+        JSON.stringify({
+          checks: [{ id: "lint", mode: "inline", run: "exit 1", paths: ["src/**"] }],
+        }),
+      );
+
+      const { code, stdout } = await runCli(["hook", "stop"], repo.root, { stdin });
+
+      expect(code).toBe(0);
+      const output = JSON.parse(stdout);
+      expect(Object.keys(output)).toEqual(["systemMessage"]);
+      expect(output.systemMessage).toContain("ゲートが働かなかった");
+      expect(output.systemMessage).toContain(cause);
+      expect(existsSync(resolveLocations(repo.root).worktreeDir)).toBe(false);
+    },
+  );
+
+  it.each([
+    ["空", "", '""'],
+    [".", ".", '"."'],
+    ["..", "..", '".."'],
+    ["/ を含む", "../outside", '"../outside"'],
+  ])(
+    "session_id が %s なら、何も書かず、ゲートが働かなかったことと原因を systemMessage で知らせて通す",
+    async (_, sessionId, cause) => {
+      const repo = createRepo();
+      onTestFinished(() => repo.cleanup());
+      repo.write("src/a.ts", "a");
+      repo.write(
+        ".menou.json",
+        JSON.stringify({
+          checks: [{ id: "lint", mode: "inline", run: "exit 1", paths: ["src/**"] }],
+        }),
+      );
+
+      const { code, stdout } = await runCli(["hook", "stop"], repo.root, {
+        stdin: JSON.stringify({ session_id: sessionId, prompt_id: "prompt-1" }),
+      });
+
+      expect(code).toBe(0);
+      const output = JSON.parse(stdout);
+      expect(Object.keys(output)).toEqual(["systemMessage"]);
+      expect(output.systemMessage).toContain("ゲートが働かなかった");
+      expect(output.systemMessage).toContain(cause);
+      expect(existsSync(resolveLocations(repo.root).worktreeDir)).toBe(false);
+    },
+  );
+
+  it("判定の途中で思わぬ失敗が起きたら、ゲートが働かなかったことと原因を systemMessage で知らせて通す", async () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("src/a.ts", "a");
+    repo.write(
+      ".menou.json",
+      JSON.stringify({
+        checks: [{ id: "lint", mode: "inline", run: "exit 1", paths: ["src/**"] }],
+      }),
+    );
+    const { worktreeDir } = resolveLocations(repo.root);
+    mkdirSync(worktreeDir, { recursive: true });
+    writeFileSync(join(worktreeDir, "sessions"), "ブロック回数を書けないようにするファイル");
+
+    const { code, stdout } = await runCli(["hook", "stop"], repo.root, {
+      stdin: JSON.stringify({ session_id: "session-a", prompt_id: "prompt-1" }),
+    });
+
+    expect(code).toBe(0);
+    const output = JSON.parse(stdout);
+    expect(Object.keys(output)).toEqual(["systemMessage"]);
+    expect(output.systemMessage).toContain("ゲートが働かなかった");
+    expect(output.systemMessage).toContain("ENOTDIR");
+  });
 });

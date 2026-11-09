@@ -45,6 +45,13 @@ export function invalidConfigLimitNotice(problems: readonly Problem[], maxBlocks
   ].join("\n");
 }
 
+export function gateFailureNotice(cause: string): string {
+  return [
+    "menou: ゲートが働かなかったので、チェックをせずに完了を許可しました。変更の内容を確かめてください。",
+    `原因: ${cause}`,
+  ].join("\n");
+}
+
 export function problemLines(problems: readonly Problem[]): string {
   return problems
     .map((problem) => `  ${problem.path === "" ? "" : `${problem.path}: `}${problem.message}`)

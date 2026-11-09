@@ -2,6 +2,7 @@ import { version } from "../package.json";
 import { runAndRecord } from "./check-runner";
 import {
   type StopOutput,
+  noticeOutput,
   readSessionStartInput,
   readStopInput,
   sessionIdFromEnv,
@@ -11,7 +12,7 @@ import { type CheckDefinition, type Config, configFileName, loadConfig } from ".
 import { fingerprint } from "./fingerprint";
 import { judgeStop } from "./gate";
 import { GitError } from "./git";
-import { errorLabel, problemLines } from "./reason";
+import { errorLabel, gateFailureNotice, problemLines } from "./reason";
 import { parseSessionId, recordBaseline, selectBaseline } from "./session";
 import { takeSnapshot } from "./snapshot";
 import {
@@ -180,8 +181,16 @@ async function sessionStart(context: Context): Promise<number> {
 }
 
 async function stop(context: Context): Promise<number> {
-  context.stdout(`${JSON.stringify(await judgeHookStop(context))}\n`);
+  context.stdout(`${JSON.stringify(await hookStopOutput(context))}\n`);
   return 0;
+}
+
+async function hookStopOutput(context: Context): Promise<StopOutput> {
+  try {
+    return await judgeHookStop(context);
+  } catch (error) {
+    return noticeOutput(gateFailureNotice(error instanceof Error ? error.message : String(error)));
+  }
 }
 
 async function judgeHookStop(context: Context): Promise<StopOutput> {

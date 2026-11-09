@@ -49,16 +49,20 @@ export interface StopOutput {
 export function stopOutput(result: GateResult): StopOutput {
   switch (result.decision) {
     case "block":
-      return { decision: "block", reason: result.reason, ...systemMessage(result.notice) };
+      return {
+        decision: "block",
+        reason: result.reason,
+        ...(result.notice === undefined ? {} : noticeOutput(result.notice)),
+      };
     case "pass":
-      return systemMessage(result.notice);
+      return result.notice === undefined ? {} : noticeOutput(result.notice);
     case "limit":
-      return { systemMessage: result.notice };
+      return noticeOutput(result.notice);
   }
 }
 
-function systemMessage(notice: string | undefined): StopOutput {
-  return notice === undefined ? {} : { systemMessage: notice };
+export function noticeOutput(notice: string): StopOutput {
+  return { systemMessage: notice };
 }
 
 export function sessionIdFromEnv(env: NodeJS.ProcessEnv): string | undefined {
