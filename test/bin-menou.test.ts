@@ -109,6 +109,55 @@ describe("ビルドした menou を bin/menou 経由で動かす", () => {
     expect(readFileSync(join(repo.root, "baseline.txt"), "utf8")).toBe(`${tree}\n`);
   });
 
+  it("menou hook stop は標準入力の JSON を読んで判定し、ブロックの JSON だけを標準出力に出して終了コード 0 で終わる", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("src/a.ts", "a");
+    repo.write(
+      ".menou.json",
+      JSON.stringify({
+        checks: [{ id: "lint", mode: "evidence", run: "exit 0", paths: ["src/**"] }],
+      }),
+    );
+
+    const result = spawnSync(wrapper, ["hook", "stop"], {
+      cwd: repo.root,
+      env: { PATH: process.env.PATH },
+      input: JSON.stringify({ session_id: "session-a", prompt_id: "prompt-1" }),
+      encoding: "utf8",
+    });
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      decision: "block",
+      reason: expect.stringContaining("`menou run lint`"),
+    });
+  });
+
+  it("menou hook stop は標準入力を JSON として読めなくても、systemMessage の JSON だけを標準出力に出して終了コード 0 で終わる", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("src/a.ts", "a");
+    repo.write(
+      ".menou.json",
+      JSON.stringify({
+        checks: [{ id: "lint", mode: "evidence", run: "exit 0", paths: ["src/**"] }],
+      }),
+    );
+
+    const result = spawnSync(wrapper, ["hook", "stop"], {
+      cwd: repo.root,
+      env: { PATH: process.env.PATH },
+      input: "session_id=session-a",
+      encoding: "utf8",
+    });
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      systemMessage: expect.stringContaining("JSON として読めませんでした"),
+    });
+  });
+
   it("menou run が Ctrl-C（SIGINT）を受けたら、チェックが起動したプロセスまで止めて、チェックが 0 で終わってもエラーとして終わる", async () => {
     const repo = createRepo();
     onTestFinished(() => repo.cleanup());

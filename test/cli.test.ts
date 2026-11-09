@@ -693,3 +693,371 @@ describe("menou run が渡す MENOU_BASELINE", () => {
     expect(readFileSync(join(worktree, "baseline.txt"), "utf8")).toBe("");
   });
 });
+
+describe("menou hook stop", () => {
+  it("MENOU_DISABLED=1 なら、標準出力に {} だけを出して終了コード 0 で終わる", async () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("src/a.ts", "a");
+    repo.write(
+      ".menou.json",
+      JSON.stringify({
+        checks: [{ id: "lint", mode: "inline", run: "exit 1", paths: ["src/**"] }],
+      }),
+    );
+
+    const { code, stdout } = await runCli(["hook", "stop"], repo.root, {
+      stdin: JSON.stringify({ session_id: "session-a", prompt_id: "prompt-1" }),
+      env: { MENOU_DISABLED: "1" },
+    });
+
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({});
+  });
+
+  it("git リポジトリの外なら、標準出力に {} だけを出して終了コード 0 で終わる", async () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "menou-outside-")));
+    onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
+    writeFileSync(
+      join(dir, ".menou.json"),
+      JSON.stringify({ checks: [{ id: "lint", mode: "inline", run: "exit 1", paths: ["**"] }] }),
+    );
+
+    const { code, stdout } = await runCli(["hook", "stop"], dir, {
+      stdin: JSON.stringify({ session_id: "session-a", prompt_id: "prompt-1" }),
+    });
+
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({});
+    expect(readdirSync(dir)).toEqual([".menou.json"]);
+  });
+
+  it(".menou.json がなければ、標準出力に {} だけを出して終了コード 0 で終わる", async () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("src/a.ts", "a");
+
+    const { code, stdout } = await runCli(["hook", "stop"], repo.root, {
+      stdin: JSON.stringify({ session_id: "session-a", prompt_id: "prompt-1" }),
+    });
+
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({});
+    expect(existsSync(resolveLocations(repo.root).worktreeDir)).toBe(false);
+  });
+
+  it("作業ツリーがベースラインから変わっていなければ、満たしていないチェックがあっても {} を出す", async () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("src/a.ts", "a");
+    repo.write(
+      ".menou.json",
+      JSON.stringify({
+        checks: [{ id: "lint", mode: "inline", run: "exit 1", paths: ["src/**"] }],
+      }),
+    );
+    await runCli(["hook", "session-start"], repo.root, {
+      stdin: JSON.stringify({ session_id: "session-a", source: "startup" }),
+    });
+
+    const { code, stdout } = await runCli(["hook", "stop"], repo.root, {
+      stdin: JSON.stringify({
+        session_id: "session-a",
+        hook_event_name: "Stop",
+        prompt_id: "prompt-1",
+        stop_hook_active: false,
+      }),
+    });
+
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({});
+  });
+
+  it("ベースラインから変わっていても、すべてのチェックを満たしていれば {} を出す", async () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("src/a.ts", "a");
+    repo.write(
+      ".menou.json",
+      JSON.stringify({
+        checks: [{ id: "lint", mode: "inline", run: "exit 0", paths: ["src/**"] }],
+      }),
+    );
+    await runCli(["hook", "session-start"], repo.root, {
+      stdin: JSON.stringify({ session_id: "session-a", source: "startup" }),
+    });
+    repo.write("src/a.ts", "changed");
+
+    const { code, stdout } = await runCli(["hook", "stop"], repo.root, {
+      stdin: JSON.stringify({ session_id: "session-a", prompt_id: "prompt-1" }),
+    });
+
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({});
+  });
+
+  it("満たしていない block のチェックがあれば、decision を block にし、reason に実行するコマンドを書く", async () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("src/a.ts", "a");
+    repo.write(
+      ".menou.json",
+      JSON.stringify({
+        checks: [{ id: "lint", mode: "inline", run: "exit 1", paths: ["src/**"] }],
+      }),
+    );
+    await runCli(["hook", "session-start"], repo.root, {
+      stdin: JSON.stringify({ session_id: "session-a", source: "startup" }),
+    });
+    repo.write("src/a.ts", "changed");
+
+    const { code, stdout } = await runCli(["hook", "stop"], repo.root, {
+      stdin: JSON.stringify({
+        session_id: "session-a",
+        transcript_path: "/tmp/transcript.jsonl",
+        cwd: repo.root,
+        permission_mode: "default",
+        hook_event_name: "Stop",
+        prompt_id: "prompt-1",
+        stop_hook_active: false,
+        last_assistant_message: "終わりました。",
+      }),
+    });
+
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({
+      decision: "block",
+      reason: expect.stringContaining("`menou run lint`"),
+    });
+  });
+
+  it("ブロックするときに満たしていない warn のチェックもあれば、それを systemMessage で知らせる", async () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("src/a.ts", "a");
+    repo.write(
+      ".menou.json",
+      JSON.stringify({
+        checks: [
+          { id: "lint", mode: "inline", run: "exit 1", paths: ["src/**"] },
+          { id: "style", mode: "inline", run: "exit 1", paths: ["src/**"], severity: "warn" },
+        ],
+      }),
+    );
+
+    const { code, stdout } = await runCli(["hook", "stop"], repo.root, {
+      stdin: JSON.stringify({ session_id: "session-a", prompt_id: "prompt-1" }),
+    });
+
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({
+      decision: "block",
+      reason: expect.not.stringContaining("style"),
+      systemMessage: expect.stringContaining("`menou run style`"),
+    });
+  });
+
+  it("満たしていないのが warn のチェックだけなら、ブロックせず systemMessage で知らせる", async () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("src/a.ts", "a");
+    repo.write(
+      ".menou.json",
+      JSON.stringify({
+        checks: [
+          { id: "lint", mode: "inline", run: "exit 0", paths: ["src/**"] },
+          { id: "style", mode: "inline", run: "exit 1", paths: ["src/**"], severity: "warn" },
+        ],
+      }),
+    );
+
+    const { code, stdout } = await runCli(["hook", "stop"], repo.root, {
+      stdin: JSON.stringify({ session_id: "session-a", prompt_id: "prompt-1" }),
+    });
+
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({
+      systemMessage: expect.stringContaining("`menou run style`"),
+    });
+  });
+
+  it("同じ prompt_id で maxBlocks 回ブロックしたら、次は systemMessage で知らせて通し、prompt_id が変わればまたブロックする", async () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("src/a.ts", "a");
+    repo.write(
+      ".menou.json",
+      JSON.stringify({
+        maxBlocks: 2,
+        checks: [{ id: "lint", mode: "inline", run: "exit 1", paths: ["src/**"] }],
+      }),
+    );
+
+    const outputs = [];
+    for (const [promptId, active] of [
+      ["prompt-1", false],
+      ["prompt-1", true],
+      ["prompt-1", true],
+      ["prompt-2", false],
+    ] as const) {
+      const { code, stdout } = await runCli(["hook", "stop"], repo.root, {
+        stdin: JSON.stringify({
+          session_id: "session-a",
+          hook_event_name: "Stop",
+          prompt_id: promptId,
+          stop_hook_active: active,
+        }),
+      });
+      expect(code).toBe(0);
+      outputs.push(JSON.parse(stdout));
+    }
+
+    expect(outputs).toEqual([
+      { decision: "block", reason: expect.stringContaining("`menou run lint`") },
+      { decision: "block", reason: expect.stringContaining("`menou run lint`") },
+      { systemMessage: expect.stringContaining("2 回続けてブロックした") },
+      { decision: "block", reason: expect.stringContaining("`menou run lint`") },
+    ]);
+  });
+
+  it.each([
+    ["ない", {}],
+    ["文字列でない", { prompt_id: 1 }],
+  ])(
+    "prompt_id が %s ときも判定し、続けてブロックした回数で maxBlocks に達したら systemMessage で知らせて通す",
+    async (_, promptId) => {
+      const repo = createRepo();
+      onTestFinished(() => repo.cleanup());
+      repo.write("src/a.ts", "a");
+      repo.write(
+        ".menou.json",
+        JSON.stringify({
+          maxBlocks: 1,
+          checks: [{ id: "lint", mode: "inline", run: "exit 1", paths: ["src/**"] }],
+        }),
+      );
+
+      const first = await runCli(["hook", "stop"], repo.root, {
+        stdin: JSON.stringify({ session_id: "session-a", ...promptId }),
+      });
+      const second = await runCli(["hook", "stop"], repo.root, {
+        stdin: JSON.stringify({ session_id: "session-a", ...promptId }),
+      });
+
+      expect([first.code, second.code]).toEqual([0, 0]);
+      expect(JSON.parse(first.stdout)).toEqual({
+        decision: "block",
+        reason: expect.stringContaining("`menou run lint`"),
+      });
+      expect(JSON.parse(second.stdout)).toEqual({
+        systemMessage: expect.stringContaining("1 回続けてブロックした"),
+      });
+    },
+  );
+
+  it(".menou.json が不正なら、decision を block にし、reason に不正な箇所を書く", async () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("src/a.ts", "a");
+    repo.write(
+      ".menou.json",
+      JSON.stringify({
+        checks: [{ id: "lint", mode: "inline", run: "exit 0", paths: ["src/**"], timout: 1 }],
+      }),
+    );
+
+    const { code, stdout } = await runCli(["hook", "stop"], repo.root, {
+      stdin: JSON.stringify({ session_id: "session-a", prompt_id: "prompt-1" }),
+    });
+
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({
+      decision: "block",
+      reason: expect.stringContaining("checks[0].timout"),
+    });
+  });
+
+  it.each([
+    ["JSON として読めない", "session_id=session-a", "JSON"],
+    ["session_id がない", JSON.stringify({ prompt_id: "prompt-1" }), "session_id"],
+    ["session_id が文字列でない", JSON.stringify({ session_id: 1 }), "session_id"],
+  ])(
+    "入力が %s なら、何も書かず、ゲートが働かなかったことと原因を systemMessage で知らせて通す",
+    async (_, stdin, cause) => {
+      const repo = createRepo();
+      onTestFinished(() => repo.cleanup());
+      repo.write("src/a.ts", "a");
+      repo.write(
+        ".menou.json",
+        JSON.stringify({
+          checks: [{ id: "lint", mode: "inline", run: "exit 1", paths: ["src/**"] }],
+        }),
+      );
+
+      const { code, stdout } = await runCli(["hook", "stop"], repo.root, { stdin });
+
+      expect(code).toBe(0);
+      const output = JSON.parse(stdout);
+      expect(Object.keys(output)).toEqual(["systemMessage"]);
+      expect(output.systemMessage).toContain("ゲートが働かなかった");
+      expect(output.systemMessage).toContain(cause);
+      expect(existsSync(resolveLocations(repo.root).worktreeDir)).toBe(false);
+    },
+  );
+
+  it.each([
+    ["空", "", '""'],
+    [".", ".", '"."'],
+    ["..", "..", '".."'],
+    ["/ を含む", "../outside", '"../outside"'],
+  ])(
+    "session_id が %s なら、何も書かず、ゲートが働かなかったことと原因を systemMessage で知らせて通す",
+    async (_, sessionId, cause) => {
+      const repo = createRepo();
+      onTestFinished(() => repo.cleanup());
+      repo.write("src/a.ts", "a");
+      repo.write(
+        ".menou.json",
+        JSON.stringify({
+          checks: [{ id: "lint", mode: "inline", run: "exit 1", paths: ["src/**"] }],
+        }),
+      );
+
+      const { code, stdout } = await runCli(["hook", "stop"], repo.root, {
+        stdin: JSON.stringify({ session_id: sessionId, prompt_id: "prompt-1" }),
+      });
+
+      expect(code).toBe(0);
+      const output = JSON.parse(stdout);
+      expect(Object.keys(output)).toEqual(["systemMessage"]);
+      expect(output.systemMessage).toContain("ゲートが働かなかった");
+      expect(output.systemMessage).toContain(cause);
+      expect(existsSync(resolveLocations(repo.root).worktreeDir)).toBe(false);
+    },
+  );
+
+  it("判定の途中で思わぬ失敗が起きたら、ゲートが働かなかったことと原因を systemMessage で知らせて通す", async () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("src/a.ts", "a");
+    repo.write(
+      ".menou.json",
+      JSON.stringify({
+        checks: [{ id: "lint", mode: "inline", run: "exit 1", paths: ["src/**"] }],
+      }),
+    );
+    const { worktreeDir } = resolveLocations(repo.root);
+    mkdirSync(worktreeDir, { recursive: true });
+    writeFileSync(join(worktreeDir, "sessions"), "ブロック回数を書けないようにするファイル");
+
+    const { code, stdout } = await runCli(["hook", "stop"], repo.root, {
+      stdin: JSON.stringify({ session_id: "session-a", prompt_id: "prompt-1" }),
+    });
+
+    expect(code).toBe(0);
+    const output = JSON.parse(stdout);
+    expect(Object.keys(output)).toEqual(["systemMessage"]);
+    expect(output.systemMessage).toContain("ゲートが働かなかった");
+    expect(output.systemMessage).toContain("ENOTDIR");
+  });
+});
