@@ -19,11 +19,17 @@ import { computeFingerprints } from "../src/fingerprint";
 import { readRecord, resolveLocations } from "../src/store";
 import { createRepo, type Repo } from "./repo";
 
-async function runCli(args: string[], cwd?: string) {
+async function runCli(
+  args: string[],
+  cwd?: string,
+  { stdin = "", env = {} }: { stdin?: string; env?: NodeJS.ProcessEnv } = {},
+) {
   const stdout: string[] = [];
   const stderr: string[] = [];
   const code = await run(args, {
     cwd,
+    env,
+    readStdin: () => Promise.resolve(stdin),
     checkOutput: "ignore",
     stdout: (text) => {
       stdout.push(text);

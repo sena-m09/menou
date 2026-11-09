@@ -18,6 +18,8 @@ export interface Context {
   stdout: (text: string) => void;
   stderr: (text: string) => void;
   cwd?: string;
+  env: NodeJS.ProcessEnv;
+  readStdin: () => Promise<string>;
   checkOutput?: "inherit" | "ignore";
 }
 
