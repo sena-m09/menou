@@ -26,7 +26,7 @@ Claude Code と Codex はどちらも Stop フックを持ち、`{"decision":"bl
 
 ## Claude Code のフックの仕様
 
-2026-11-06 に、Claude Code 2.1.319 で公式ドキュメントと実際の動きを確かめた内容です。
+2026-11-06 に、Claude Code 2.1.319 で公式ドキュメントと実際の動きを確かめた内容です。対話モードでの表示は、2026-11-09 に確かめました。
 
 | 項目 | 仕様 |
 | --- | --- |
@@ -36,6 +36,8 @@ Claude Code と Codex はどちらも Stop フックを持ち、`{"decision":"bl
 | Stop の入力 | `session_id`・`transcript_path`・`cwd`・`permission_mode`・`hook_event_name`・`prompt_id`・`effort`・`stop_hook_active`・`last_assistant_message`・`background_tasks`・`session_crons` |
 | `prompt_id` | ユーザーのプロンプトごとの UUID。ブロックして継続させている間は同じ値で、次のプロンプトで変わる |
 | 終了コードと JSON | 終了コード 0 なら、stdout の JSON の `decision` で決まる。2 ならブロックし、stderr が理由文になる。0・2 以外でも、stdout が正しい JSON ならその内容で決まる。0・2 以外で JSON がなければエラーとして扱われ、完了する |
+| ブロックしたときの表示 | 対話モードでは、理由文が「Stop hook error: <理由文>」と表示される。フックが終了コード 0 で正しい JSON を返していても、表示は error になる。stream-json では `"key":"stop-hook-error"` の `notification` が出る |
+| `systemMessage` の表示 | 対話モードでは、応答の下に「Stop says: <文>」と表示される |
 | `onFailure` | `Stop` には効かない。フックが起動できない、タイムアウトした、のような失敗では完了する |
 | 連続ブロックの上限 | 8 回続けてブロックすると、9 回目のブロックは無視されて完了する。Claude がツールを呼ぶと数え直す。環境変数 `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` で変えられ、0 で上限をなくせる |
 | タイムアウト | コマンドのフックの既定値は 600 秒。フックの定義の `timeout`（秒）で変えられ、上限は書かれていない。タイムアウトしたフックの出力は捨てられるので、`Stop` では完了する |
@@ -64,3 +66,73 @@ Claude Code にも、上の表のとおり連続 8 回のブロックで完了�
 | コマンドのパス | `"$CLAUDE_PLUGIN_ROOT/..."` をダブルクォートで囲む | `"$(git rev-parse --show-toplevel)/..."` で git ルートから解決 |
 
 どちらの方式でも、フックが呼ぶのは同じ `menou hook <event>` です。プラグインとして作る場合、マニフェストは `.claude-plugin/plugin.json` と `.codex-plugin/plugin.json` の両方を用意します。
+
+## サンプルリポジトリでの確かめ方
+
+フックの処理を変えたときや、エージェントの version を上げたときは、本物のエージェントで menou が働くかを次の手順で確かめます。
+
+### サンプルを作る
+
+リポジトリのルートで次を実行します。
+
+```sh
+pnpm build
+node scripts/sample-repo.ts
+```
+
+スクリプトは一時ディレクトリに git リポジトリを作り、最初のコミットまで済ませて、そのパスを出力します。中身は次のとおりです。
+
+| ファイル | 役割 |
+| --- | --- |
+| `.menou.json` | `src/` に `console.log` が残っていると不合格になる inline の `lint` チェック。`paths` は `src/**` と Lint のスクリプト |
+| `scripts/no-console.mjs` | Lint のスクリプト。合格なら 0、不合格なら 1、`src/` を読めなければ 2 で終わる |
+| `src/app.js` | `paths` の範囲内のファイル |
+| `docs/README.md` | `paths` の範囲外のファイル |
+| エージェントごとのフックの設定 | この worktree の `bin/menou` を絶対パスで呼ぶ。下の「Claude Code で確かめる」を参照 |
+
+フックはサンプルの中のプロジェクト単位の設定にだけ書くので、`~/.claude/` や `~/.codex/` は変わりません。確かめることごとにサンプルを作り直すと、前の確認の変更や記録が混ざりません。
+
+### 確かめること
+
+プロンプトは、エージェントが menou を知らない前提で、普通の作業依頼として書きます。
+
+| 確かめること | プロンプトの例 | 期待する結果 |
+| --- | --- | --- |
+| 1. Lint エラーを残したまま完了しようとすると、ブロックされる | `src/app.js に、引数を console.log で出力する関数 greet を足して。終わったら完了して` | 理由文がエージェントに届く。エージェントが直すか、`maxBlocks`（既定は 3）回ブロックしたところで完了が許可される |
+| 2. Lint エラーを直すと、完了できる | 1 と同じセッションを再開して、`console.log` を使わないよう頼む | ブロックされずに完了する |
+| 3. `paths` の範囲外だけを変えたときは、ブロックされない | `docs/README.md に、使い方のセクションを足して、add(1, 2) の例を書いて。終わったら完了して` | ブロックされない。Lint も実行されない |
+| 4. 何も変えない応答では、ブロックされない | `src/app.js の add 関数は何をする関数？ ファイルは変えずに答えて` | ブロックされない。Lint も実行されない |
+
+結果は、サンプルの `.git/menou/` の下で確かめます。
+
+| ファイル | 見ること |
+| --- | --- |
+| `sessions/<セッション ID>/baseline.json` | SessionStart のフックが動いて、ベースラインが記録されたか |
+| `sessions/<セッション ID>/blocks.json` | `count` が続けてブロックした回数。1 では 1 以上、2 で通したあとは 0 になる。一度もブロックしていなければ、ファイルはない |
+| `results/lint/<フィンガープリント>.json` | `result` が Lint の合否。1 では `fail`、2 では `pass` の記録ができる。3 と 4 では Lint を実行しないので、ファイルはできない |
+
+### Claude Code で確かめる
+
+スクリプトは `.claude/settings.json` に、SessionStart のフックとして `menou hook session-start` を、Stop のフックとして `menou hook stop` を登録します。
+
+サンプルのディレクトリで、次のように起動します。
+
+```sh
+claude -p "<プロンプト>" --model sonnet \
+  --setting-sources project \
+  --permission-mode acceptEdits \
+  --allowedTools "Bash(menou:*)" "Bash(node:*)" "Bash(git status:*)" "Bash(git diff:*)" \
+  --output-format stream-json --verbose --include-hook-events > run.jsonl
+```
+
+- `--setting-sources project` を付けると、`~/.claude/settings.json` のフックが混ざらず、サンプルのフックだけが動きます
+- `--permission-mode acceptEdits` と `--allowedTools` で、ファイルの編集と、理由文にある `menou run` や Lint のスクリプトの実行を許可します
+- 2 では、1 の出力の最初にある `"subtype":"init"` の行から `session_id` を取り、`--resume <session_id>` を付けて起動します
+
+`run.jsonl` では、次の行を見ます。
+
+| 行 | 見ること |
+| --- | --- |
+| `"subtype":"hook_response"` で `"hook_event":"Stop"` | `stdout` が `menou hook stop` の出力。ブロックしたときは `{"decision":"block",...}`、通したときは `{}` |
+| `Stop hook feedback:` で始まるユーザーのメッセージ | エージェントに届いた理由文 |
+| `"subtype":"informational"` で `Stop says:` を含む行 | `maxBlocks` に達して完了を許可したときの `systemMessage` |
