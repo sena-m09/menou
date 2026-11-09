@@ -62,7 +62,9 @@ export const ConfigSchema = v.pipe(
     maxBlocks: v.optional(
       v.pipe(
         positiveInteger,
-        v.description("1 セッションで連続ブロックできる上限。超えたら許可して人に通知する"),
+        v.description(
+          "1 つの依頼の中で、続けてブロックできる回数。達したら完了を許可して人に知らせる",
+        ),
       ),
       3,
     ),
