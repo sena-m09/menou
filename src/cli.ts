@@ -1,8 +1,15 @@
 import { version } from "../package.json";
 import { runAndRecord } from "./check-runner";
-import { readSessionStartInput, sessionIdFromEnv } from "./claude-code";
+import {
+  type StopOutput,
+  readSessionStartInput,
+  readStopInput,
+  sessionIdFromEnv,
+  stopOutput,
+} from "./claude-code";
 import { type CheckDefinition, type Config, configFileName, loadConfig } from "./config";
 import { fingerprint } from "./fingerprint";
+import { judgeStop } from "./gate";
 import { GitError } from "./git";
 import { errorLabel, problemLines } from "./reason";
 import { parseSessionId, recordBaseline, selectBaseline } from "./session";
@@ -40,6 +47,7 @@ export async function run(args: readonly string[], context: Context): Promise<nu
 
   try {
     if (command === "hook" && rest[0] === "session-start") return await sessionStart(context);
+    if (command === "hook" && rest[0] === "stop") return await stop(context);
     if (command === "run") return await runOne(rest[0], context);
     if (command === "status") return status(context);
   } catch (error) {
@@ -169,6 +177,27 @@ async function sessionStart(context: Context): Promise<number> {
   }
   recordBaseline(locations, sessionId, () => takeSnapshot(locations.root, []).tree);
   return 0;
+}
+
+async function stop(context: Context): Promise<number> {
+  context.stdout(`${JSON.stringify(await judgeHookStop(context))}\n`);
+  return 0;
+}
+
+async function judgeHookStop(context: Context): Promise<StopOutput> {
+  if (context.env.MENOU_DISABLED === "1") return {};
+  const locations = findLocations(context);
+  if (locations === undefined) return {};
+  const config = loadConfig(locations.root);
+  if (config.status === "missing") return {};
+
+  const input = readStopInput(await context.readStdin());
+  if (input.status === "invalid") throw new MenouError(input.problem);
+  const sessionId = parseSessionId(input.sessionId);
+  if (sessionId === undefined) {
+    throw new MenouError(`session_id の "${input.sessionId}" はディレクトリ名に使えません。`);
+  }
+  return stopOutput(await judgeStop({ locations, config, sessionId, promptId: input.promptId }));
 }
 
 function status(context: Context): number {
