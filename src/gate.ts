@@ -99,10 +99,13 @@ export async function judgeStop(input: StopInput, options: GateOptions = {}): Pr
     comparableBaseline === undefined || !unchanged(comparableBaseline, check.paths);
 
   const budgetSeconds = options.budgetSeconds ?? stopBudgetSeconds;
+  const severities = new Map(checks.map((check) => [check.id, check.severity]));
   const states = new Map<string, CheckState>();
   const evaluate = async (check: CheckDefinition): Promise<CheckState> => {
     if (!inScope(check)) return { kind: "out-of-scope" };
-    const unmet = (check.needs ?? []).filter((need) => !isSatisfied(states.get(need)));
+    const unmet = (check.needs ?? []).filter(
+      (need) => severities.get(need) === "block" && !isSatisfied(states.get(need)),
+    );
     if (unmet.length > 0) return { kind: "waiting", needs: unmet };
 
     const record = readRecord(locations, check.id, now.fingerprints.get(check.id) ?? "");

@@ -279,7 +279,7 @@ describe("ブロックするとき", () => {
     expect(existsSync(join(repo.root, "ran.log"))).toBe(false);
   });
 
-  it("前提のチェックが通らなければ、後ろのチェックは実行せず、前提を先に通すよう伝える", async () => {
+  it("block の前提のチェックが不合格なら、後ろのチェックは実行せず、前提を先に通すよう伝えてブロックする", async () => {
     const repo = createRepo();
     onTestFinished(() => repo.cleanup());
     repo.write("src/a.ts", "a");
@@ -355,7 +355,7 @@ describe("ブロックするとき", () => {
     });
   });
 
-  it("前提が warn のチェックでも、通らなければ後ろの block のチェックは確かめられないのでブロックする", async () => {
+  it("warn の前提のチェックが不合格でも、後ろの block のチェックを実行し、合格なら警告を知らせて通す", async () => {
     const repo = createRepo();
     onTestFinished(() => repo.cleanup());
     repo.write("src/a.ts", "a");
@@ -364,7 +364,49 @@ describe("ブロックするとき", () => {
       JSON.stringify({
         checks: [
           { id: "lint", mode: "inline", run: "exit 1", paths: ["src/**"], severity: "warn" },
-          { id: "test", mode: "inline", run: "exit 0", paths: ["src/**"], needs: ["lint"] },
+          {
+            id: "test",
+            mode: "inline",
+            run: "echo ran >> ran.log",
+            paths: ["src/**"],
+            needs: ["lint"],
+          },
+        ],
+      }),
+    );
+    const locations = resolveLocations(repo.root);
+    const sessionId = v.parse(SessionIdSchema, "session-a");
+    recordBaseline(locations, sessionId, () => takeSnapshot(repo.root, []).tree);
+    repo.write("src/a.ts", "changed");
+
+    const result = await judgeStop({
+      locations,
+      config: loadConfig(repo.root),
+      sessionId,
+      promptId: "prompt-a",
+    });
+
+    expect(result).toMatchObject({
+      decision: "pass",
+      checks: [
+        { check: { id: "lint" }, state: { kind: "ran", outcome: { result: "fail" } } },
+        { check: { id: "test" }, state: { kind: "ran", outcome: { result: "pass" } } },
+      ],
+    });
+    expect(result).toHaveProperty("notice", expect.stringContaining("menou run lint"));
+    expect(readFileSync(join(repo.root, "ran.log"), "utf8")).toBe("ran\n");
+  });
+
+  it("warn の前提のチェックが不合格で、後ろの block のチェックも不合格なら、ブロックする", async () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("src/a.ts", "a");
+    repo.write(
+      ".menou.json",
+      JSON.stringify({
+        checks: [
+          { id: "lint", mode: "inline", run: "exit 1", paths: ["src/**"], severity: "warn" },
+          { id: "test", mode: "inline", run: "exit 1", paths: ["src/**"], needs: ["lint"] },
         ],
       }),
     );
@@ -384,9 +426,11 @@ describe("ブロックするとき", () => {
       decision: "block",
       checks: [
         { check: { id: "lint" }, state: { kind: "ran", outcome: { result: "fail" } } },
-        { check: { id: "test" }, state: { kind: "waiting", needs: ["lint"] } },
+        { check: { id: "test" }, state: { kind: "ran", outcome: { result: "fail" } } },
       ],
     });
+    expect(result).toHaveProperty("reason", expect.stringContaining("menou run test"));
+    expect(result).toHaveProperty("notice", expect.stringContaining("menou run lint"));
   });
 
   it(".menou.json がベースラインから変わっていたら、paths の範囲が変わっていないチェックも求める", async () => {
