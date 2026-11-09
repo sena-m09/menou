@@ -8,5 +8,27 @@
     "enabled": true,
     "excludedCommands": ["pnpm test:floor", "gh *", "git *"],
     "network": { "allowedDomains": ["registry.npmjs.org"] }
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pnpm -s --dir \"$CLAUDE_PROJECT_DIR\" build >/dev/null 2>&1; \"$CLAUDE_PROJECT_DIR/bin/menou\" hook session-start"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pnpm -s --dir \"$CLAUDE_PROJECT_DIR\" build >/dev/null 2>&1; \"$CLAUDE_PROJECT_DIR/bin/menou\" hook stop"
+          }
+        ]
+      }
+    ]
   }
 }

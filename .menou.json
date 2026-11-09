@@ -1,0 +1,26 @@
+{
+  "$schema": "./schema.json",
+  "checks": [
+    {
+      "id": "lint",
+      "mode": "inline",
+      "run": "pnpm -s lint",
+      "paths": ["**"]
+    },
+    {
+      "id": "test",
+      "mode": "inline",
+      "run": "pnpm -s test",
+      "paths": [
+        "src/**",
+        "test/**",
+        "scripts/**",
+        "bin/**",
+        "package.json",
+        "pnpm-lock.yaml",
+        "tsconfig.json",
+        ".oxlintrc.json"
+      ]
+    }
+  ]
+}
