@@ -4,6 +4,7 @@ import { readSessionStartInput, sessionIdFromEnv } from "./claude-code";
 import { type CheckDefinition, type Config, configFileName, loadConfig } from "./config";
 import { fingerprint } from "./fingerprint";
 import { GitError } from "./git";
+import { errorLabel, problemLines } from "./reason";
 import { parseSessionId, recordBaseline, selectBaseline } from "./session";
 import { takeSnapshot } from "./snapshot";
 import {
@@ -68,9 +69,8 @@ function openWorkspace(context: Context): Workspace | undefined {
   const result = loadConfig(locations.root);
   if (result.status === "missing") return undefined;
   if (result.status === "invalid") {
-    const lines = result.problems.map((p) => `  ${p.path === "" ? "" : `${p.path}: `}${p.message}`);
     throw new MenouError(
-      `${configFileName} が不正です。次の箇所を直してください。\n${lines.join("\n")}`,
+      `${configFileName} が不正です。次の箇所を直してください。\n${problemLines(result.problems)}`,
     );
   }
   return { locations, config: result.config };
@@ -214,20 +214,5 @@ function describeStatus(check: CheckDefinition, record: Outcome | undefined): st
       return `不合格  menou run ${check.id} でやり直せます`;
     case "error":
       return `エラー（${errorLabel(record.cause)}）  menou run ${check.id} でやり直せます`;
-  }
-}
-
-function errorLabel(cause: ErrorCause): string {
-  switch (cause.kind) {
-    case "exit":
-      return `終了コード ${cause.code}`;
-    case "signal":
-      return `シグナル ${cause.signal}`;
-    case "timeout":
-      return `${cause.seconds} 秒でタイムアウト`;
-    case "spawn":
-      return "実行できない";
-    case "modified":
-      return "実行中にファイルが書き換わった";
   }
 }

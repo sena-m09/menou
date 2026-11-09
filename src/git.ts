@@ -23,6 +23,19 @@ const inheritedPathspecVariables = [
 ];
 
 export function git(args: readonly string[], options: GitOptions): string {
+  const result = spawnGit(args, options);
+  if (result.status !== 0) throw new GitError(args, result.stderr);
+  return result.stdout;
+}
+
+export function gitQuiet(args: readonly string[], options: GitOptions): boolean {
+  const result = spawnGit(args, options);
+  if (result.status === 0) return true;
+  if (result.status === 1) return false;
+  throw new GitError(args, result.stderr);
+}
+
+function spawnGit(args: readonly string[], options: GitOptions) {
   const env: NodeJS.ProcessEnv = { ...process.env };
   delete env.GIT_INDEX_FILE;
   for (const name of inheritedPathspecVariables) delete env[name];
@@ -36,6 +49,5 @@ export function git(args: readonly string[], options: GitOptions): string {
     maxBuffer: 1024 * 1024 * 1024,
   });
   if (result.error) throw result.error;
-  if (result.status !== 0) throw new GitError(args, result.stderr);
-  return result.stdout;
+  return result;
 }
