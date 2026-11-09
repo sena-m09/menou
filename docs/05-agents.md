@@ -26,7 +26,7 @@ Claude Code と Codex はどちらも Stop フックを持ち、`{"decision":"bl
 
 ## Claude Code のフックの仕様
 
-2026-11-06 に、Claude Code 2.1.319 で公式ドキュメントと実際の動きを確かめた内容です。
+2026-11-06 に、Claude Code 2.1.319 で公式ドキュメントと実際の動きを確かめた内容です。対話モードでの表示は、2026-11-09 に確かめました。
 
 | 項目 | 仕様 |
 | --- | --- |
@@ -36,6 +36,8 @@ Claude Code と Codex はどちらも Stop フックを持ち、`{"decision":"bl
 | Stop の入力 | `session_id`・`transcript_path`・`cwd`・`permission_mode`・`hook_event_name`・`prompt_id`・`effort`・`stop_hook_active`・`last_assistant_message`・`background_tasks`・`session_crons` |
 | `prompt_id` | ユーザーのプロンプトごとの UUID。ブロックして継続させている間は同じ値で、次のプロンプトで変わる |
 | 終了コードと JSON | 終了コード 0 なら、stdout の JSON の `decision` で決まる。2 ならブロックし、stderr が理由文になる。0・2 以外でも、stdout が正しい JSON ならその内容で決まる。0・2 以外で JSON がなければエラーとして扱われ、完了する |
+| ブロックしたときの表示 | 対話モードでは、理由文が「Stop hook error: <理由文>」と表示される。フックが終了コード 0 で正しい JSON を返していても、表示は error になる。stream-json では `"key":"stop-hook-error"` の `notification` が出る |
+| `systemMessage` の表示 | 対話モードでは、応答の下に「Stop says: <文>」と表示される |
 | `onFailure` | `Stop` には効かない。フックが起動できない、タイムアウトした、のような失敗では完了する |
 | 連続ブロックの上限 | 8 回続けてブロックすると、9 回目のブロックは無視されて完了する。Claude がツールを呼ぶと数え直す。環境変数 `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` で変えられ、0 で上限をなくせる |
 | タイムアウト | コマンドのフックの既定値は 600 秒。フックの定義の `timeout`（秒）で変えられ、上限は書かれていない。タイムアウトしたフックの出力は捨てられるので、`Stop` では完了する |
