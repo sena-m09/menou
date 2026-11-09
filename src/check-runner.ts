@@ -7,6 +7,7 @@ export interface RunCheckOptions {
   cwd: string;
   outDir: string;
   stdio?: "inherit" | "ignore";
+  baseline?: string;
   graceMs?: number;
 }
 
@@ -25,6 +26,7 @@ export async function runCheck(check: CheckDefinition, options: RunCheckOptions)
     MENOU_CHECK_ID: check.id,
   };
   delete env.MENOU_BASELINE;
+  if (options.baseline !== undefined) env.MENOU_BASELINE = options.baseline;
 
   const child = spawn("/bin/sh", ["-c", check.run], {
     cwd: options.cwd,

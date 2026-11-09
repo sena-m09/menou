@@ -1,8 +1,10 @@
 import { version } from "../package.json";
 import { runCheck } from "./check-runner";
+import { readSessionStartInput, sessionIdFromEnv } from "./claude-code";
 import { type CheckDefinition, type Config, configFileName, loadConfig } from "./config";
 import { computeFingerprints, fingerprint } from "./fingerprint";
 import { GitError } from "./git";
+import { parseSessionId, recordBaseline, selectBaseline } from "./session";
 import { takeSnapshot } from "./snapshot";
 import {
   type ErrorCause,
@@ -18,6 +20,8 @@ export interface Context {
   stdout: (text: string) => void;
   stderr: (text: string) => void;
   cwd?: string;
+  env: NodeJS.ProcessEnv;
+  readStdin: () => Promise<string>;
   checkOutput?: "inherit" | "ignore";
 }
 
@@ -36,6 +40,7 @@ export async function run(args: readonly string[], context: Context): Promise<nu
   }
 
   try {
+    if (command === "hook" && rest[0] === "session-start") return await sessionStart(context);
     if (command === "run") return await runOne(rest[0], context);
     if (command === "status") return status(context);
   } catch (error) {
@@ -74,11 +79,17 @@ function openWorkspace(context: Context): Workspace | undefined {
 }
 
 function locate(context: Context): Locations {
+  const locations = findLocations(context);
+  if (locations === undefined) throw new MenouError("git リポジトリの中で実行してください。");
+  return locations;
+}
+
+function findLocations(context: Context): Locations | undefined {
   try {
     return resolveLocations(context.cwd ?? process.cwd());
   } catch (error) {
-    if (!(error instanceof GitError)) throw error;
-    throw new MenouError("git リポジトリの中で実行してください。");
+    if (error instanceof GitError) return undefined;
+    throw error;
   }
 }
 
@@ -113,7 +124,12 @@ async function runOne(id: string | undefined, context: Context): Promise<number>
     computeFingerprints(locations.root, [check]).fingerprints.get(check.id) ?? "";
   const before = fingerprintNow();
   const outDir = prepareOutDir(locations, check.id);
-  const ran = await runCheck(check, { cwd: locations.root, outDir, stdio: context.checkOutput });
+  const ran = await runCheck(check, {
+    cwd: locations.root,
+    outDir,
+    stdio: context.checkOutput,
+    baseline: selectBaseline(locations, sessionIdFromEnv(context.env)),
+  });
   const outcome: Outcome =
     fingerprintNow() === before ? ran : { result: "error", cause: { kind: "modified" } };
 
@@ -153,6 +169,23 @@ function describeError(check: CheckDefinition, cause: ErrorCause): string {
     case "modified":
       return `${check.id} の実行中に paths の中のファイルが書き換わりました。チェックのコマンドがファイルを書き換えているなら、確かめるだけのコマンドに変えてください。`;
   }
+}
+
+async function sessionStart(context: Context): Promise<number> {
+  if (context.env.MENOU_DISABLED === "1") return 0;
+  const locations = findLocations(context);
+  if (locations === undefined || loadConfig(locations.root).status === "missing") return 0;
+
+  const input = readSessionStartInput(await context.readStdin());
+  if (input.status === "invalid") throw new MenouError(input.problem);
+  const sessionId = parseSessionId(input.sessionId);
+  if (sessionId === undefined) {
+    throw new MenouError(
+      `session_id の "${input.sessionId}" はディレクトリ名に使えないので、ベースラインを記録できません。`,
+    );
+  }
+  recordBaseline(locations, sessionId, () => takeSnapshot(locations.root, []).tree);
+  return 0;
 }
 
 function status(context: Context): number {
