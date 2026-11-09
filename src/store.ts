@@ -19,7 +19,12 @@ const OutcomeSchema = v.variant("result", [
 ]);
 
 const CheckRecordSchema = v.intersect([
-  v.object({ id: v.string(), fingerprint: v.string(), finishedAt: v.string() }),
+  v.object({
+    id: v.string(),
+    fingerprint: v.string(),
+    finishedAt: v.string(),
+    gitDir: v.optional(v.string()),
+  }),
   OutcomeSchema,
 ]);
 
@@ -31,6 +36,7 @@ export type CheckRecord = v.InferOutput<typeof CheckRecordSchema>;
 
 export interface Locations {
   root: string;
+  gitDir: string;
   resultsDir: string;
   tempDir: string;
   worktreeDir: string;
@@ -43,6 +49,7 @@ export function resolveLocations(dir: string): Locations {
   ).split("\n");
   return {
     root,
+    gitDir,
     resultsDir: join(commonDir, "menou", "results"),
     tempDir: join(commonDir, "menou", "tmp"),
     worktreeDir: join(gitDir, "menou"),

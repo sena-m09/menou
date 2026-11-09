@@ -118,6 +118,7 @@ export async function runAndRecord(
     id: check.id,
     fingerprint: before,
     finishedAt: new Date().toISOString(),
+    gitDir: locations.gitDir,
     ...outcome,
   });
   return outcome;

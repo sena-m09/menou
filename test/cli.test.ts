@@ -182,6 +182,27 @@ describe("menou run <id>", () => {
     expect((await runCli(["run", "review"], repo.root)).code).toBe(0);
   });
 
+  it("記録に、実行した worktree の git ディレクトリを残す", async () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("src/a.ts", "a");
+
+    configure(repo, [{ id: "lint", run: "exit 1" }]);
+    repo.commitAll();
+    const worktree = `${repo.root}-wt`;
+    repo.git("worktree", "add", "-q", worktree);
+    onTestFinished(() => {
+      repo.git("worktree", "remove", "--force", worktree);
+    });
+
+    await runCli(["run", "lint"], worktree);
+
+    expect(recordOf(repo, "lint")).toMatchObject({
+      result: "fail",
+      gitDir: resolveLocations(worktree).gitDir,
+    });
+  });
+
   it("同じフィンガープリントで合格した記録があっても、もう一度実行する", async () => {
     const repo = createRepo();
     onTestFinished(() => repo.cleanup());
