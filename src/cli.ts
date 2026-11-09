@@ -1,8 +1,8 @@
 import { version } from "../package.json";
-import { runCheck } from "./check-runner";
+import { runAndRecord } from "./check-runner";
 import { readSessionStartInput, sessionIdFromEnv } from "./claude-code";
 import { type CheckDefinition, type Config, configFileName, loadConfig } from "./config";
-import { computeFingerprints, fingerprint } from "./fingerprint";
+import { fingerprint } from "./fingerprint";
 import { GitError } from "./git";
 import { parseSessionId, recordBaseline, selectBaseline } from "./session";
 import { takeSnapshot } from "./snapshot";
@@ -10,10 +10,8 @@ import {
   type ErrorCause,
   type Locations,
   type Outcome,
-  prepareOutDir,
   readRecord,
   resolveLocations,
-  writeRecord,
 } from "./store";
 
 export interface Context {
@@ -120,24 +118,9 @@ async function runOne(id: string | undefined, context: Context): Promise<number>
     );
   }
 
-  const fingerprintNow = () =>
-    computeFingerprints(locations.root, [check]).fingerprints.get(check.id) ?? "";
-  const before = fingerprintNow();
-  const outDir = prepareOutDir(locations, check.id);
-  const ran = await runCheck(check, {
-    cwd: locations.root,
-    outDir,
+  const outcome = await runAndRecord(locations, check, {
     stdio: context.checkOutput,
     baseline: selectBaseline(locations, sessionIdFromEnv(context.env)),
-  });
-  const outcome: Outcome =
-    fingerprintNow() === before ? ran : { result: "error", cause: { kind: "modified" } };
-
-  writeRecord(locations, {
-    id: check.id,
-    fingerprint: before,
-    finishedAt: new Date().toISOString(),
-    ...outcome,
   });
   context.stderr(`menou: ${describeRun(check, outcome)}\n`);
   return exitCodes[outcome.result];

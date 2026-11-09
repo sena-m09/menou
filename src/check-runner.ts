@@ -1,13 +1,15 @@
 import { spawn } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { CheckDefinition } from "./config";
-import type { Outcome } from "./store";
+import { computeFingerprints } from "./fingerprint";
+import { type Locations, type Outcome, prepareOutDir, writeRecord } from "./store";
 
 export interface RunCheckOptions {
   cwd: string;
   outDir: string;
   stdio?: "inherit" | "ignore";
   baseline?: string;
+  env?: Readonly<Record<string, string>>;
   graceMs?: number;
 }
 
@@ -27,6 +29,7 @@ export async function runCheck(check: CheckDefinition, options: RunCheckOptions)
   };
   delete env.MENOU_BASELINE;
   if (options.baseline !== undefined) env.MENOU_BASELINE = options.baseline;
+  Object.assign(env, options.env);
 
   const child = spawn("/bin/sh", ["-c", check.run], {
     cwd: options.cwd,
@@ -94,6 +97,30 @@ export async function runCheck(check: CheckDefinition, options: RunCheckOptions)
   } finally {
     finished.abort();
   }
+}
+
+export type RecordedRunOptions = Omit<RunCheckOptions, "cwd" | "outDir">;
+
+export async function runAndRecord(
+  locations: Locations,
+  check: CheckDefinition,
+  options: RecordedRunOptions,
+): Promise<Outcome> {
+  const fingerprintNow = () =>
+    computeFingerprints(locations.root, [check]).fingerprints.get(check.id) ?? "";
+  const before = fingerprintNow();
+  const outDir = prepareOutDir(locations, check.id);
+  const ran = await runCheck(check, { ...options, cwd: locations.root, outDir });
+  const outcome: Outcome =
+    fingerprintNow() === before ? ran : { result: "error", cause: { kind: "modified" } };
+
+  writeRecord(locations, {
+    id: check.id,
+    fingerprint: before,
+    finishedAt: new Date().toISOString(),
+    ...outcome,
+  });
+  return outcome;
 }
 
 function judgeExit(code: number | null, signal: NodeJS.Signals | null): Outcome {

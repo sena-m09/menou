@@ -184,6 +184,22 @@ describe("チェックのコマンドに渡すもの", () => {
     expect(await runIn(dir, check('test "$MENOU_TEST_VALUE" = kept'))).toEqual({ result: "pass" });
   });
 
+  it("呼び出し側が足した環境変数を、menou を呼んだ環境の値より優先して渡す", async () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "menou-runner-")));
+    onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
+
+    vi.stubEnv("MENOU_DISABLED", "0");
+
+    const outcome = await runCheck(check('test "$MENOU_DISABLED" = 1'), {
+      cwd: dir,
+      outDir: dir,
+      stdio: "ignore",
+      env: { MENOU_DISABLED: "1" },
+    });
+
+    expect(outcome).toEqual({ result: "pass" });
+  });
+
   it("渡した作業ディレクトリで実行する", async () => {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), "menou-runner-")));
     onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
