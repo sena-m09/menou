@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it, onTestFinished, vi } from "vitest";
+import { takeSnapshot } from "../src/snapshot";
 import { createRepo, type Repo } from "./repo";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -82,6 +83,30 @@ describe("ビルドした menou を bin/menou 経由で動かす", () => {
     configure(repo, "exit 0");
 
     expect(menou(repo, ["run", "lnt"]).status).toBe(3);
+  });
+
+  it("menou hook session-start は標準入力の session_id でベースラインを記録し、同じ CLAUDE_CODE_SESSION_ID の menou run がそれを MENOU_BASELINE として渡す", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("src/a.ts", "a");
+    configure(repo, "printenv MENOU_BASELINE > baseline.txt");
+
+    const started = spawnSync(wrapper, ["hook", "session-start"], {
+      cwd: repo.root,
+      input: JSON.stringify({ session_id: "session-a", source: "startup" }),
+      encoding: "utf8",
+    });
+    const tree = takeSnapshot(repo.root, []).tree;
+    repo.write("src/a.ts", "changed");
+    const ran = spawnSync(wrapper, ["run", "lint"], {
+      cwd: repo.root,
+      env: { ...process.env, CLAUDE_CODE_SESSION_ID: "session-a" },
+      encoding: "utf8",
+    });
+
+    expect(started).toMatchObject({ status: 0, stdout: "" });
+    expect(ran.status).toBe(0);
+    expect(readFileSync(join(repo.root, "baseline.txt"), "utf8")).toBe(`${tree}\n`);
   });
 
   it("menou run が Ctrl-C（SIGINT）を受けたら、チェックが起動したプロセスまで止めて、チェックが 0 で終わってもエラーとして終わる", async () => {

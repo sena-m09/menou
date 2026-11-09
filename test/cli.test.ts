@@ -11,11 +11,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { JsonValue } from "fast-check";
-import { describe, expect, it, onTestFinished } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { version } from "../package.json";
 import { run } from "../src/cli";
 import { loadConfig } from "../src/config";
 import { computeFingerprints } from "../src/fingerprint";
+import { takeSnapshot } from "../src/snapshot";
 import { readRecord, resolveLocations } from "../src/store";
 import { createRepo, type Repo } from "./repo";
 
@@ -416,5 +417,258 @@ describe("menou status", () => {
 
     expect(code).toBe(0);
     expect(stdout).toContain(".menou.json");
+  });
+});
+
+describe("menou hook session-start", () => {
+  it("記録したベースラインを、同じセッションの menou run が MENOU_BASELINE として渡し、標準出力には何も出さない", async () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("src/a.ts", "a");
+    configure(repo, [{ id: "baseline", run: "printenv MENOU_BASELINE > baseline.txt" }]);
+    const tree = takeSnapshot(repo.root, []).tree;
+
+    const started = await runCli(["hook", "session-start"], repo.root, {
+      stdin: JSON.stringify({
+        session_id: "session-a",
+        transcript_path: "/tmp/transcript.jsonl",
+        cwd: repo.root,
+        hook_event_name: "SessionStart",
+        source: "startup",
+      }),
+    });
+
+    expect(started).toEqual({ code: 0, stdout: "", stderr: "" });
+    await runCli(["run", "baseline"], repo.root, { env: { CLAUDE_CODE_SESSION_ID: "session-a" } });
+    expect(readFileSync(join(repo.root, "baseline.txt"), "utf8")).toBe(`${tree}\n`);
+  });
+
+  it("同じセッション ID でもう一度呼ばれても、作業ツリーを変えたあとでも、最初のベースラインのまま", async () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("src/a.ts", "a");
+    configure(repo, [{ id: "baseline", run: "printenv MENOU_BASELINE > baseline.txt" }]);
+    const first = takeSnapshot(repo.root, []).tree;
+    await runCli(["hook", "session-start"], repo.root, {
+      stdin: JSON.stringify({ session_id: "session-a", source: "startup" }),
+    });
+
+    repo.write("src/a.ts", "changed");
+    const resumed = await runCli(["hook", "session-start"], repo.root, {
+      stdin: JSON.stringify({ session_id: "session-a", source: "resume" }),
+    });
+    repo.write("src/b.ts", "b");
+    await runCli(["hook", "session-start"], repo.root, {
+      stdin: JSON.stringify({ session_id: "session-a", source: "compact" }),
+    });
+
+    expect(resumed).toEqual({ code: 0, stdout: "", stderr: "" });
+    await runCli(["run", "baseline"], repo.root, { env: { CLAUDE_CODE_SESSION_ID: "session-a" } });
+    expect(readFileSync(join(repo.root, "baseline.txt"), "utf8")).toBe(`${first}\n`);
+  });
+
+  it("別のセッション ID なら、その時点の作業ツリーを別のベースラインとして記録する", async () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("src/a.ts", "a");
+    configure(repo, [{ id: "baseline", run: "printenv MENOU_BASELINE > baseline.txt" }]);
+    const treeOfA = takeSnapshot(repo.root, []).tree;
+    await runCli(["hook", "session-start"], repo.root, {
+      stdin: JSON.stringify({ session_id: "session-a", source: "startup" }),
+    });
+
+    repo.write("src/a.ts", "changed");
+    const treeOfB = takeSnapshot(repo.root, []).tree;
+    await runCli(["hook", "session-start"], repo.root, {
+      stdin: JSON.stringify({ session_id: "session-b", source: "clear" }),
+    });
+
+    await runCli(["run", "baseline"], repo.root, { env: { CLAUDE_CODE_SESSION_ID: "session-a" } });
+    expect(readFileSync(join(repo.root, "baseline.txt"), "utf8")).toBe(`${treeOfA}\n`);
+    await runCli(["run", "baseline"], repo.root, { env: { CLAUDE_CODE_SESSION_ID: "session-b" } });
+    expect(readFileSync(join(repo.root, "baseline.txt"), "utf8")).toBe(`${treeOfB}\n`);
+    expect(treeOfA).not.toBe(treeOfB);
+  });
+
+  it(".menou.json が不正でも、ベースラインを記録して終了コード 0 で終わる", async () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("src/a.ts", "a");
+    configure(repo, [{ id: "lint", run: "exit 0", timout: 1 }]);
+
+    const started = await runCli(["hook", "session-start"], repo.root, {
+      stdin: JSON.stringify({ session_id: "session-a", source: "startup" }),
+    });
+
+    expect(started).toEqual({ code: 0, stdout: "", stderr: "" });
+    expect(readdirSync(join(resolveLocations(repo.root).worktreeDir, "sessions"))).toEqual([
+      "session-a",
+    ]);
+  });
+
+  it(".menou.json がなければ、何も書かず、何も出さずに終了コード 0 で終わる", async () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("src/a.ts", "a");
+
+    const started = await runCli(["hook", "session-start"], repo.root, {
+      stdin: JSON.stringify({ session_id: "session-a", source: "startup" }),
+    });
+
+    expect(started).toEqual({ code: 0, stdout: "", stderr: "" });
+    expect(existsSync(resolveLocations(repo.root).worktreeDir)).toBe(false);
+  });
+
+  it("MENOU_DISABLED=1 なら、何も書かず、何も出さずに終了コード 0 で終わる", async () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("src/a.ts", "a");
+    configure(repo, [{ id: "lint", run: "exit 0" }]);
+
+    const started = await runCli(["hook", "session-start"], repo.root, {
+      stdin: JSON.stringify({ session_id: "session-a", source: "startup" }),
+      env: { MENOU_DISABLED: "1" },
+    });
+
+    expect(started).toEqual({ code: 0, stdout: "", stderr: "" });
+    expect(existsSync(resolveLocations(repo.root).worktreeDir)).toBe(false);
+  });
+
+  it("git リポジトリの外なら、何も書かず、何も出さずに終了コード 0 で終わる", async () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "menou-outside-")));
+    onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
+    writeFileSync(join(dir, ".menou.json"), JSON.stringify({ checks: [] }));
+
+    const started = await runCli(["hook", "session-start"], dir, {
+      stdin: JSON.stringify({ session_id: "session-a", source: "startup" }),
+    });
+
+    expect(started).toEqual({ code: 0, stdout: "", stderr: "" });
+    expect(readdirSync(dir)).toEqual([".menou.json"]);
+  });
+
+  it.each([
+    ["JSON として読めない", "session_id=session-a", "JSON"],
+    ["session_id がない", JSON.stringify({ source: "startup" }), "session_id"],
+    ["session_id が文字列でない", JSON.stringify({ session_id: 1 }), "session_id"],
+    ["session_id が空", JSON.stringify({ session_id: "" }), "session_id"],
+    ["session_id が .", JSON.stringify({ session_id: "." }), '"."'],
+    ["session_id が ..", JSON.stringify({ session_id: ".." }), '".."'],
+    ["session_id が / を含む", JSON.stringify({ session_id: "../outside" }), '"../outside"'],
+  ])(
+    "入力が %s なら、何も書かず、標準出力にも出さず、理由を伝えて終了コード 3 で終わる",
+    async (_, stdin, reason) => {
+      const repo = createRepo();
+      onTestFinished(() => repo.cleanup());
+      repo.write("src/a.ts", "a");
+      configure(repo, [{ id: "lint", run: "exit 0" }]);
+
+      const { code, stdout, stderr } = await runCli(["hook", "session-start"], repo.root, {
+        stdin,
+      });
+
+      expect(code).toBe(3);
+      expect(stdout).toBe("");
+      expect(stderr).toContain(reason);
+      expect(existsSync(resolveLocations(repo.root).worktreeDir)).toBe(false);
+    },
+  );
+});
+
+describe("menou run が渡す MENOU_BASELINE", () => {
+  it("その worktree にベースラインが 1 つもなければ、渡さない", async () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("src/a.ts", "a");
+    configure(repo, [{ id: "baseline", run: "printenv MENOU_BASELINE > baseline.txt" }]);
+
+    await runCli(["run", "baseline"], repo.root, { env: { CLAUDE_CODE_SESSION_ID: "session-a" } });
+
+    expect(readFileSync(join(repo.root, "baseline.txt"), "utf8")).toBe("");
+  });
+
+  it("CLAUDE_CODE_SESSION_ID のセッションのベースラインがあれば、後から記録された別のセッションより優先して渡す", async () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("src/a.ts", "a");
+    configure(repo, [{ id: "baseline", run: "printenv MENOU_BASELINE > baseline.txt" }]);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+
+    vi.setSystemTime(new Date("2026-11-01T00:00:00Z"));
+    const treeOfA = takeSnapshot(repo.root, []).tree;
+    await runCli(["hook", "session-start"], repo.root, {
+      stdin: JSON.stringify({ session_id: "session-a", source: "startup" }),
+    });
+    vi.setSystemTime(new Date("2026-11-02T00:00:00Z"));
+    repo.write("src/a.ts", "changed");
+    await runCli(["hook", "session-start"], repo.root, {
+      stdin: JSON.stringify({ session_id: "session-b", source: "startup" }),
+    });
+
+    await runCli(["run", "baseline"], repo.root, { env: { CLAUDE_CODE_SESSION_ID: "session-a" } });
+
+    expect(readFileSync(join(repo.root, "baseline.txt"), "utf8")).toBe(`${treeOfA}\n`);
+  });
+
+  it.each([
+    ["CLAUDE_CODE_SESSION_ID が渡っていない", {}],
+    [
+      "CLAUDE_CODE_SESSION_ID のセッションのベースラインがない",
+      { CLAUDE_CODE_SESSION_ID: "session-c" },
+    ],
+    [
+      "CLAUDE_CODE_SESSION_ID がディレクトリ名に使えない値",
+      { CLAUDE_CODE_SESSION_ID: "../session-a" },
+    ],
+  ])(
+    "%s なら、記録した順ではなく記録した時刻で、最後に記録されたベースラインを渡す",
+    async (_, env) => {
+      const repo = createRepo();
+      onTestFinished(() => repo.cleanup());
+      repo.write("src/a.ts", "a");
+      configure(repo, [{ id: "baseline", run: "printenv MENOU_BASELINE > baseline.txt" }]);
+      vi.useFakeTimers({ toFake: ["Date"] });
+      onTestFinished(() => {
+        vi.useRealTimers();
+      });
+
+      vi.setSystemTime(new Date("2026-11-02T00:00:00Z"));
+      const treeOfLatest = takeSnapshot(repo.root, []).tree;
+      await runCli(["hook", "session-start"], repo.root, {
+        stdin: JSON.stringify({ session_id: "session-latest", source: "startup" }),
+      });
+      vi.setSystemTime(new Date("2026-11-01T00:00:00Z"));
+      repo.write("src/a.ts", "changed");
+      await runCli(["hook", "session-start"], repo.root, {
+        stdin: JSON.stringify({ session_id: "session-earlier", source: "startup" }),
+      });
+
+      await runCli(["run", "baseline"], repo.root, { env });
+
+      expect(readFileSync(join(repo.root, "baseline.txt"), "utf8")).toBe(`${treeOfLatest}\n`);
+    },
+  );
+
+  it("ほかの worktree で記録されたベースラインは使わない", async () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("src/a.ts", "a");
+    configure(repo, [{ id: "baseline", run: "printenv MENOU_BASELINE > baseline.txt" }]);
+    repo.commitAll();
+    const worktree = `${repo.root}-wt`;
+    repo.git("worktree", "add", "-q", worktree);
+    onTestFinished(() => {
+      repo.git("worktree", "remove", "--force", worktree);
+    });
+
+    await runCli(["hook", "session-start"], repo.root, {
+      stdin: JSON.stringify({ session_id: "session-a", source: "startup" }),
+    });
+    await runCli(["run", "baseline"], worktree, { env: { CLAUDE_CODE_SESSION_ID: "session-a" } });
+
+    expect(readFileSync(join(worktree, "baseline.txt"), "utf8")).toBe("");
   });
 });
