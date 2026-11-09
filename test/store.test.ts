@@ -239,6 +239,59 @@ describe("記録の読み書き", () => {
   });
 });
 
+describe("記録を取った worktree", () => {
+  it("記録に残した git ディレクトリを、そのまま読み直せる", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("a.txt", "a");
+    repo.commitAll();
+    const locations = resolveLocations(repo.root);
+
+    writeRecord(locations, { ...record(), gitDir: locations.gitDir });
+
+    expect(readRecord(locations, "lint", fingerprintA)).toEqual({
+      ...record(),
+      gitDir: locations.gitDir,
+    });
+  });
+
+  it("git ディレクトリを残していない前の形の記録も読める", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("a.txt", "a");
+    repo.commitAll();
+    const locations = resolveLocations(repo.root);
+    mkdirSync(join(locations.resultsDir, "lint"), { recursive: true });
+    writeFileSync(
+      join(locations.resultsDir, "lint", `${fingerprintA}.json`),
+      JSON.stringify({
+        id: "lint",
+        fingerprint: fingerprintA,
+        finishedAt: "2026-11-06T00:00:00.000Z",
+        result: "fail",
+      }),
+    );
+
+    expect(readRecord(locations, "lint", fingerprintA)).toEqual(
+      record({ outcome: { result: "fail" } }),
+    );
+  });
+
+  it("worktree ごとに git ディレクトリが分かれる", () => {
+    const repo = createRepo();
+    onTestFinished(() => repo.cleanup());
+    repo.write("a.txt", "a");
+    repo.commitAll();
+    const worktree = `${repo.root}-wt`;
+    repo.git("worktree", "add", "-q", worktree);
+    onTestFinished(() => {
+      repo.git("worktree", "remove", "--force", worktree);
+    });
+
+    expect(resolveLocations(worktree).gitDir).not.toBe(resolveLocations(repo.root).gitDir);
+  });
+});
+
 describe("git worktree での置き場所", () => {
   it("ある worktree で書いた記録を、別の worktree から読める", () => {
     const repo = createRepo();

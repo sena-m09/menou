@@ -3,7 +3,7 @@ import { join } from "node:path";
 import fc from "fast-check";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { run } from "../src/cli";
-import { selectBaseline } from "../src/session";
+import { type BlockCount, countBlock, selectBaseline } from "../src/session";
 import { takeSnapshot } from "../src/snapshot";
 import { resolveLocations } from "../src/store";
 import { createRepo } from "./repo";
@@ -61,4 +61,46 @@ describe("SessionStart で記録するベースライン", () => {
       { numRuns: 20 },
     );
   }, 120_000);
+});
+
+describe("ブロック回数の数え方", () => {
+  it("同じプロンプトの中で続けてブロックするのは maxBlocks 回までで、新しいプロンプトか、不足なく通したあとは数え直す", () => {
+    const stopArb = fc.record({
+      promptId: fc.constantFrom("prompt-a", "prompt-b", undefined),
+      short: fc.boolean(),
+    });
+
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 5 }),
+        fc.array(stopArb, { maxLength: 30 }),
+        (maxBlocks, stops) => {
+          const streak: { count: number; promptId: string | undefined } = {
+            count: 0,
+            promptId: undefined,
+          };
+          const start: BlockCount = { count: 0 };
+
+          stops.reduce((previous, stop) => {
+            const { decision, next } = countBlock(previous, { ...stop, maxBlocks });
+            const continuing = streak.count > 0 && streak.promptId === stop.promptId;
+            const blocksSoFar = continuing ? streak.count : 0;
+
+            if (!stop.short) {
+              expect(decision).toBe("pass");
+              streak.count = 0;
+            } else if (blocksSoFar < maxBlocks) {
+              expect(decision).toBe("block");
+              streak.count = blocksSoFar + 1;
+              streak.promptId = stop.promptId;
+            } else {
+              expect(decision).toBe("limit");
+            }
+            expect(streak.count).toBeLessThanOrEqual(maxBlocks);
+            return next;
+          }, start);
+        },
+      ),
+    );
+  });
 });
