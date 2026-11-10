@@ -7,10 +7,10 @@ Claude Code と Codex はどちらも Stop フックを持ち、`{"decision":"bl
 | 項目 | Claude Code | Codex |
 | --- | --- | --- |
 | 完了時のフック | `Stop` | `Stop` |
-| 継続させる出力 | `{"decision":"block","reason":"..."}` | 同じ（理由文が新しいユーザープロンプトになる） |
+| 継続させる出力 | `{"decision":"block","reason":"..."}` | 同じ（理由文がユーザーのメッセージとして同じターンに入る） |
 | 終了コード 2 + stderr | 継続 | 継続 |
 | ループ判定用の入力 | `stop_hook_active` | 同じ |
-| 編集前のフック | `PreToolUse`（Edit / Write / NotebookEdit） | `PreToolUse`（apply_patch。`Edit` / `Write` でもマッチ） |
+| 編集前のフック | `PreToolUse`（Edit / Write / NotebookEdit） | `PreToolUse`（apply_patch。matcher の `Edit` / `Write` でも当たる。`tool_name` は `apply_patch`） |
 | 編集の拒否 | `hookSpecificOutput.permissionDecision: "deny"` | 同じ |
 | プラグインのフック定義 | `hooks/hooks.json` | 同じ場所を既定で読む。`CLAUDE_PLUGIN_ROOT` も設定される |
 
@@ -19,10 +19,10 @@ Claude Code と Codex はどちらも Stop フックを持ち、`{"decision":"bl
 | 違い | 吸収方法 |
 | --- | --- |
 | Codex は prompt / agent 型のフックを実行しない | 判定はすべてコマンドで行う。LLM による判定はレビューのプリセットとして evidence 方式で扱う |
-| Codex の Stop は、終了コード 0 なら stdout に JSON が必須（プレーンテキストは不正） | 通すときも `{}` を出力する |
-| Codex は未信頼のフックを実行しない（定義のハッシュで信頼を記録） | 導入手順に「Codex の `/hooks` で信頼する」を明記し、`menou doctor` で未信頼を検知する |
+| Codex の Stop は、終了コード 0 でプレーンテキストを出すと不正な出力として扱い、完了させる。0・2 以外では、stdout の JSON を読まずに完了させる | 通すときも `{}` を出力し、終了コード 0 で終える |
+| Codex は未信頼のフックを、警告を出さずに飛ばす（定義のハッシュで信頼を記録） | 導入手順に「Codex の `/hooks` で信頼する」を明記し、`menou doctor` で未信頼を検知する |
 | SessionStart の stdout は両方ともコンテキストに入る | 意図した案内文だけを出力し、余計な出力をしない |
-| フックのタイムアウトの既定値が異なる | 重い処理はフック内で実行しない。evidence 方式に寄せる |
+| Codex には連続ブロックの上限がない | `maxBlocks` で打ち切る |
 
 ## Claude Code のフックの仕様
 
