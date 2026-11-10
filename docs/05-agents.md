@@ -49,6 +49,32 @@ Claude Code と Codex はどちらも Stop フックを持ち、`{"decision":"bl
 | stdout がコンテキストに入るイベント | `SessionStart`・`UserPromptSubmit`・`UserPromptExpansion`・`PostModelSwitch` のプレーンテキストの stdout。`PreCompact` の stdout はコンパクションの要約への指示になる。ほかのイベントの stdout はデバッグログにだけ残る |
 | 編集のツール | `Edit`・`Write`・`NotebookEdit`。`MultiEdit` はない。Bash からの書き込みは `PreToolUse` の編集のツールには当たらない |
 
+## Codex のフックの仕様
+
+2026-11-10 に、Codex 0.166.0 で公式ドキュメント、openai/codex の `rust-v0.166.0` タグの入出力のスキーマ、実際の動きを確かめた内容です。
+
+| 項目 | 仕様 |
+| --- | --- |
+| Stop の入力 | `session_id`・`turn_id`・`transcript_path`・`cwd`・`hook_event_name`・`model`・`permission_mode`・`stop_hook_active`・`last_assistant_message`。`prompt_id` はない |
+| `turn_id` | ユーザーのプロンプトごとに新しくなる。ブロックして継続させている間は同じ値。`resume` したあとのプロンプトでも新しくなる |
+| `stop_hook_active` | プロンプトのあとの最初の Stop では false。ブロックして継続させたあとの Stop では true |
+| ブロックしたときの扱い | 理由文が `<hook_prompt>` で囲まれたユーザーのメッセージとして、同じターンに入る。このとき `UserPromptSubmit` は呼ばれない |
+| 終了コードと JSON | 終了コード 0 なら、stdout の JSON の `decision` で決まる。0 で何も出力しなければ完了する。0 でプレーンテキストを出すと、不正な出力としてフックの失敗になり、完了する。2 ならブロックし、stderr が理由文になる。0・2 以外は、stdout に正しい JSON があってもフックの失敗になり、完了する |
+| 表示 | 対話モードでは、ブロックは「Blocked by hook」と理由文、`systemMessage` は「↳ Hook · <文>」、フックの失敗は「Hook failed」と原因（`hook timed out after 5s` など）で表示される。`codex exec --json` の出力には、理由文も `systemMessage` もフックの失敗も出ない |
+| 連続ブロックの上限 | 15 回続けてブロックしても、Codex は完了させなかった。ドキュメントにも上限は書かれていない |
+| タイムアウト | コマンドのフックの既定値は 600 秒。フックの定義の `timeout`（秒）で変えられる。タイムアウトするとフックの失敗になり、`Stop` では完了する |
+| SessionStart の `source` | `startup`・`resume`・`clear`・`compact`・`fork` |
+| `source` ごとの `session_id` | `resume`（`codex exec resume`）は前と同じ。`clear` は新しくなる。`compact` と `fork` は確かめていない |
+| SessionStart が呼ばれる時機 | 対話モードでは、起動したときではなく、最初のプロンプトを送ったときに呼ばれる。`/clear` のあとも、次のプロンプトを送ったときに呼ばれる |
+| UserPromptSubmit | プロンプトを送ったときに呼ばれる。入力に `prompt` と `turn_id` が入る |
+| 環境変数 | フックには、名前に `CODEX`・`SESSION`・`THREAD` を含む Codex の変数が渡らない。Bash ツールで実行したコマンドには `CODEX_THREAD_ID` と `CODEX_SESSION_ID` が渡り、どちらも値は入力の `session_id` と同じ。Bash ツールは `shell_environment_policy.inherit = "core"` の設定で確かめた |
+| stdout がコンテキストに入るイベント | `SessionStart` と `UserPromptSubmit` のプレーンテキストの stdout。`SessionStart` は動きでも確かめた |
+| 編集のツール | `apply_patch`。matcher の `Edit` や `Write` に当たり、入力の `tool_name` は `apply_patch` になる。`tool_input` は `{"command":"<パッチ全体>"}` で、編集するファイルのパスはパッチの `*** Update File:` などの行にある。確かめた 1 回では絶対パスだった。シェルのコマンドは `Bash` として当たる |
+| フックが動く条件 | プロジェクトの `.codex/` が信頼されていて、フックごとにも信頼されていること。信頼されていないフックは何も出さずに飛ばされ、`codex exec` では警告も出ない。対話モードでは、起動時に「Hooks need review」が出る |
+| 信頼の記録 | `~/.codex/config.toml` に、`[projects."<実パス>"]` の `trust_level = "trusted"` と、`[hooks.state."<hooks.json の実パス>:<イベント>:<グループの番号>:<フックの番号>"]` の `trusted_hash` が書かれる。ハッシュは matcher・command・timeout などの定義から計算されるので、定義を変えると信頼が外れる |
+| `codex exec` とプロジェクトの信頼 | 信頼されていないプロジェクトで `codex exec` を実行すると、プロジェクトが信頼済みとして記録された。フックの信頼は記録されない |
+| 信頼の状態を外から確かめる方法 | `codex app-server`（experimental）の `hooks/list` が、フックごとに `trustStatus`（`trusted`・`untrusted`・`modified`）を返す。プロジェクトが信頼されていないと、プロジェクトのフックは一覧に出ない。`codex doctor` はフックの信頼を報告しない |
+
 ## `stop_hook_active` の扱い
 
 よくある実装例の「`stop_hook_active` が true なら通す」は採用しません。1 回ブロックしただけで、条件を満たさないまま完了できてしまうからです。代わりに、1 つの依頼の中で続けたブロックの回数を数え、`maxBlocks` で打ち切ります。依頼が変わったことは、Stop の入力の `prompt_id` で見分けます。
