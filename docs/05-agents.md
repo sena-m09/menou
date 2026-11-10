@@ -1,6 +1,6 @@
 # エージェント対応
 
-Claude Code と Codex はどちらも Stop フックを持ち、`{"decision":"block","reason":"..."}` で作業を継続させられるため、判定ロジックは共通化できます。差はアダプタ層で吸収します。仕様は変わりやすいので、実装前に [Claude Code のフック](https://code.claude.com/docs/en/hooks.md) と [Codex のフック](https://developers.openai.com/codex/hooks) の最新版を必ず確認してください。
+Claude Code と Codex はどちらも Stop フックを持ち、`{"decision":"block","reason":"..."}` で作業を継続させられるため、判定ロジックは共通化できます。差はアダプタ層で吸収します。仕様は変わりやすいので、実装前に [Claude Code のフック](https://code.claude.com/docs/en/hooks.md) と [Codex のフック](https://learn.chatgpt.com/docs/hooks) の最新版を必ず確認してください。
 
 ## 共通化できる部分
 
