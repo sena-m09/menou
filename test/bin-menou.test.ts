@@ -93,6 +93,7 @@ describe("ビルドした menou を bin/menou 経由で動かす", () => {
 
     const started = spawnSync(wrapper, ["hook", "session-start"], {
       cwd: repo.root,
+      env: { PATH: process.env.PATH },
       input: JSON.stringify({ session_id: "session-a", source: "startup" }),
       encoding: "utf8",
     });
@@ -100,7 +101,7 @@ describe("ビルドした menou を bin/menou 経由で動かす", () => {
     repo.write("src/a.ts", "changed");
     const ran = spawnSync(wrapper, ["run", "lint"], {
       cwd: repo.root,
-      env: { ...process.env, CLAUDE_CODE_SESSION_ID: "session-a" },
+      env: { PATH: process.env.PATH, CLAUDE_CODE_SESSION_ID: "session-a" },
       encoding: "utf8",
     });
 
